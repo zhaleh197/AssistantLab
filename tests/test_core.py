@@ -1,0 +1,295 @@
+import hashlib
+import io
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core import auth, db, ingest, llm, loaders, rag, retrieval  # noqa: E402
+from core.text import chunk_text, clean, tokenize  # noqa: E402
+
+
+def fake_embed(texts):
+    """Embedding جعلی بر پایه‌ی کلمات، تا تست‌ها بدون API اجرا شوند."""
+    out = np.zeros((len(texts), 64), dtype=np.float32)
+    for i, t in enumerate(texts):
+        for tok in tokenize(t):
+            out[i, int(hashlib.md5(tok.encode()).hexdigest(), 16) % 64] += 1
+    norms = np.linalg.norm(out, axis=1, keepdims=True)
+    return out / np.where(norms == 0, 1, norms)
+
+
+@pytest.fixture(autouse=True)
+def tmp_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(llm, "embed", fake_embed)
+    db.init_db()
+
+
+def make_org(name="org", username="admin1"):
+    return db.create_org_with_admin(name, username, "Admin", auth.hash_password("password123"))
+
+
+# ---------- متن ----------
+
+def test_clean_normalizes_arabic_chars_and_digits():
+    assert clean("كتاب علي ۱۲۳") == "کتاب علی 123"
+
+
+def test_tokenize_joins_zwnj():
+    assert tokenize("می‌روم") == tokenize("میروم") == ["میروم"]
+
+
+def test_chunk_respects_size_and_keeps_all_text():
+    paras = [f"پاراگراف شماره {i} " + "کلمه " * 40 for i in range(20)]
+    chunks = chunk_text("\n\n".join(paras), size=500, overlap=50)
+    assert len(chunks) > 1
+    assert all(len(c) <= 500 + 60 for c in chunks)
+    for i in range(20):
+        assert any(f"پاراگراف شماره {i} " in c for c in chunks)
+
+
+def test_chunk_splits_one_giant_paragraph():
+    chunks = chunk_text("واژه " * 2000, size=300, overlap=0)
+    assert len(chunks) > 10 and all(len(c) <= 300 for c in chunks)
+
+
+# ---------- احراز هویت ----------
+
+def test_password_hash_roundtrip():
+    h = auth.hash_password("secret-pass")
+    assert auth.verify_password("secret-pass", h)
+    assert not auth.verify_password("wrong", h)
+    assert not auth.verify_password("x", "garbage")
+
+
+def test_validate_new_account():
+    assert auth.validate_new_account("ab", "password123")
+    assert auth.validate_new_account("good_name", "short")
+    assert auth.validate_new_account("good_name", "password123") is None
+
+
+# ---------- بارگذاری فایل ----------
+
+def test_extract_docx_and_csv():
+    import docx
+
+    d = docx.Document()
+    d.add_paragraph("سیاست مرخصی شرکت")
+    buf = io.BytesIO()
+    d.save(buf)
+    assert "مرخصی" in loaders.extract_file("a.docx", buf.getvalue())[0][1]
+
+    csv = "نام,سمت\nعلی,مدیر\n".encode("utf-8")
+    assert "سمت: مدیر" in loaders.extract_file("a.csv", csv)[0][1]
+
+
+def test_extract_rejects_unknown_format():
+    with pytest.raises(loaders.UnsupportedSource):
+        loaders.extract_file("a.exe", b"xx")
+
+
+class _FakeResponse:
+    is_redirect = False
+    headers = {"Content-Type": "text/html; charset=utf-8"}
+
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def raise_for_status(self):
+        pass
+
+    def iter_content(self, _size):
+        yield self.body
+
+
+def test_js_rendered_page_falls_back_to_browser(monkeypatch):
+    shell = b"<html><head><title>Shell</title><meta name='description' content='desc'></head>" \
+            b"<body><main><h1></h1><div id='root'></div></main></body></html>"
+    rendered = ("<html><body><main>" + "<p>محتوای واقعی سایت</p>" * 30 + "</main></body></html>").encode()
+
+    monkeypatch.setattr(loaders, "_assert_public_host", lambda url: None)
+    monkeypatch.setattr(loaders.requests, "get", lambda *a, **k: _FakeResponse(shell))
+    monkeypatch.setattr(loaders, "_render_with_browser", lambda url: rendered)
+
+    title, segs = loaders.extract_url("https://spa.example/")
+    assert title == "Shell"
+    assert "desc" in segs[0][1] and "محتوای واقعی سایت" in segs[0][1]
+
+
+def test_static_page_does_not_use_browser(monkeypatch):
+    page = ("<html><body><article>" + "<p>متن کامل صفحه</p>" * 40 + "</article></body></html>").encode()
+
+    def no_browser(url):
+        raise AssertionError("browser should not be used")
+
+    monkeypatch.setattr(loaders, "_assert_public_host", lambda url: None)
+    monkeypatch.setattr(loaders.requests, "get", lambda *a, **k: _FakeResponse(page))
+    monkeypatch.setattr(loaders, "_render_with_browser", no_browser)
+    assert "متن کامل صفحه" in loaders.extract_url("https://static.example/")[1][0][1]
+
+
+def test_url_blocks_private_hosts():
+    for url in ("http://127.0.0.1/admin", "http://169.254.169.254/latest", "file:///etc/passwd"):
+        with pytest.raises(loaders.UnsupportedSource):
+            loaders.extract_url(url)
+
+
+# ---------- ingest و جستجو ----------
+
+def test_ingest_and_hybrid_search():
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "HR", "", "")
+    ingest.ingest(org["org_id"], aid, "text", "مرخصی", [("", "کارمندان سالانه ۲۶ روز مرخصی استحقاقی دارند.")])
+    ingest.ingest(org["org_id"], aid, "text", "حقوق", [("", "حقوق ماهانه روز پنجم هر ماه واریز می‌شود.")])
+
+    hits = retrieval.search(org["org_id"], aid, "چند روز مرخصی داریم؟", k=2)
+    assert hits[0].source_name == "مرخصی"
+
+
+def test_tenant_isolation():
+    a = make_org("A", "admin_a")
+    b = make_org("B", "admin_b")
+    aid = db.create_assistant(a["org_id"], "secret", "", "")
+    ingest.ingest(a["org_id"], aid, "text", "محرمانه", [("", "رمز گاوصندوق ۱۲۳۴ است")])
+
+    # سازمان B با شناسه‌ی دستیار A هیچ چیزی نمی‌بیند و نمی‌تواند حذفش کند
+    assert retrieval.search(b["org_id"], aid, "رمز گاوصندوق", k=5) == []
+    assert db.get_assistant(b["org_id"], aid) is None
+    db.delete_assistant(b["org_id"], aid)
+    assert db.get_assistant(a["org_id"], aid) is not None
+
+
+def test_ingest_failure_marks_source_error(monkeypatch):
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "x", "", "")
+    with pytest.raises(ValueError):
+        ingest.ingest(org["org_id"], aid, "text", "خالی", [("", "   ")])
+    assert db.list_sources(org["org_id"], aid)[0]["status"] == "error"
+
+
+def test_quota(monkeypatch):
+    monkeypatch.setattr(ingest.config, "MAX_CHUNKS_PER_ORG", 1)
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "x", "", "")
+    with pytest.raises(ingest.QuotaExceeded):
+        ingest.ingest(org["org_id"], aid, "text", "big", [("", "\n\n".join(["متن " * 300] * 3))])
+
+
+def test_deleting_source_updates_search_index():
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "x", "", "")
+    ingest.ingest(org["org_id"], aid, "text", "s1", [("", "قانون کار")])
+    assert retrieval.search(org["org_id"], aid, "قانون", k=3)
+    db.delete_source(org["org_id"], db.list_sources(org["org_id"], aid)[0]["id"])
+    assert retrieval.search(org["org_id"], aid, "قانون", k=3) == []
+
+
+# ---------- پرامپت و ارجاع ----------
+
+def test_cited_numbers():
+    assert rag.cited_numbers("الف [2] ب [۱][2] ج [9]", n_hits=3) == [2, 1]
+
+
+def test_build_messages_contains_sources_and_persona():
+    hit = retrieval.Hit(1, 1, "دفترچه", "صفحه 3", "متن نمونه", 1.0)
+    msgs = rag.build_messages({"name": "دستیار", "system_prompt": "لحن صمیمی"}, [], "سؤال؟", [hit])
+    assert "لحن صمیمی" in msgs[0]["content"]
+    assert "[1] (دفترچه — صفحه 3)" in msgs[-1]["content"]
+
+
+# ---------- ورود ماندگار ----------
+
+def test_ticket_exchange_is_single_use_and_creates_session():
+    from core import sessions
+
+    user = make_org()
+    ticket = sessions.create_ticket(user["id"])
+    token = sessions.exchange_ticket(ticket)
+    assert token and sessions.user_for_session(token)["id"] == user["id"]
+    assert "password_hash" not in sessions.user_for_session(token)
+    assert sessions.exchange_ticket(ticket) is None          # بلیت فقط یک بار مصرف می‌شود
+    assert sessions.user_for_session(ticket) is None         # بلیت به‌جای نشست قبول نمی‌شود
+
+
+def test_expired_ticket_and_revoked_session(monkeypatch):
+    from core import sessions
+
+    user = make_org()
+    monkeypatch.setattr(sessions, "TICKET_TTL", -1)
+    assert sessions.exchange_ticket(sessions.create_ticket(user["id"])) is None
+
+    monkeypatch.setattr(sessions, "TICKET_TTL", 60)
+    token = sessions.exchange_ticket(sessions.create_ticket(user["id"]))
+    sessions.revoke(token)
+    assert sessions.user_for_session(token) is None
+    assert sessions.user_for_session("") is None and sessions.user_for_session("garbage") is None
+
+
+def test_deleting_user_ends_their_sessions():
+    from core import sessions
+
+    admin = make_org()
+    db.create_user(admin["org_id"], "member1", "M", auth.hash_password("password123"), "member")
+    member = db.get_user_by_username("member1")
+    token = sessions.exchange_ticket(sessions.create_ticket(member["id"]))
+    db.delete_user(admin["org_id"], member["id"])
+    assert sessions.user_for_session(token) is None
+
+
+# ---------- خزیدن ----------
+
+def _fake_site(monkeypatch, pages: dict[str, tuple[str, list[str]]]):
+    """pages: url -> (text, links)"""
+    from core import crawler
+
+    def load_page(url):
+        if url not in pages:
+            raise loaders.UnsupportedSource("404")
+        text, links = pages[url]
+        return loaders.WebPage(url, f"T:{url.rsplit('/', 1)[-1] or 'home'}", [("", text)], links)
+
+    monkeypatch.setattr(crawler.loaders, "load_page", load_page)
+    monkeypatch.setattr(crawler.loaders, "_assert_public_host", lambda url: None)
+    monkeypatch.setattr(crawler, "_robots", lambda url: None)
+    monkeypatch.setattr(crawler, "REQUEST_DELAY", 0)
+    return crawler
+
+
+def test_crawl_follows_internal_links_only(monkeypatch):
+    crawler = _fake_site(monkeypatch, {
+        "https://site.com/docs/": ("صفحه اصلی", [
+            "https://site.com/docs/a", "https://site.com/docs/a#bottom", "https://site.com/docs/index.html",
+            "https://other.com/x", "https://site.com/blog/post", "https://site.com/docs/logo.png",
+            "mailto:me@site.com",
+        ]),
+        "https://site.com/docs/a": ("صفحه الف", ["https://site.com/docs/b", "https://site.com/docs/"]),
+        "https://site.com/docs/b": ("صفحه ب", []),
+    })
+    result = crawler.crawl("https://site.com/docs/", max_pages=10)
+    assert result.pages == ["https://site.com/docs/", "https://site.com/docs/a", "https://site.com/docs/b"]
+    assert "(https://site.com/docs/a)" in result.segments[1][0]
+    assert not result.failures
+
+
+def test_crawl_respects_page_limit_skips_duplicates_and_reports_failures(monkeypatch):
+    crawler = _fake_site(monkeypatch, {
+        "https://site.com/": ("خانه", ["https://site.com/1", "https://site.com/dup", "https://site.com/broken",
+                                        "https://site.com/2", "https://site.com/3"]),
+        "https://site.com/1": ("یک", []),
+        "https://site.com/dup": ("خانه", []),
+        "https://site.com/2": ("دو", []),
+        "https://site.com/3": ("سه", []),
+    })
+    result = crawler.crawl("https://site.com/", max_pages=3)
+    assert result.pages == ["https://site.com/", "https://site.com/1", "https://site.com/2"]
+    assert [u for u, _ in result.failures] == ["https://site.com/broken"]
+
+
+def test_crawl_with_no_readable_page_raises(monkeypatch):
+    crawler = _fake_site(monkeypatch, {})
+    with pytest.raises(loaders.UnsupportedSource):
+        crawler.crawl("https://site.com/", max_pages=5)
