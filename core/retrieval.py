@@ -78,12 +78,9 @@ def _memory_candidates(org_id: int, assistant_id: int, query: str) -> tuple[list
 
 
 def _database_candidates(org_id: int, assistant_id: int, query: str) -> tuple[list[dict], list[dict]]:
-    """Postgres: pgvector و جستجوی تمام‌متن، هر دو داخل دیتابیس."""
+    """Postgres: pgvector و جستجوی تمام‌متن، هر دو داخل دیتابیس و در یک رفت‌وبرگشت."""
     qvec = llm.embed([query])[0]
-    return (
-        db.vector_search(org_id, assistant_id, qvec, CANDIDATES),
-        db.keyword_search(org_id, assistant_id, tokenize(query), CANDIDATES),
-    )
+    return db.hybrid_search(org_id, assistant_id, qvec, tokenize(query), CANDIDATES)
 
 
 def search(org_id: int, assistant_id: int, query: str, k: int) -> list[Hit]:

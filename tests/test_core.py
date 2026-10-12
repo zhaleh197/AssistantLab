@@ -346,3 +346,37 @@ def test_rejects_transaction_pooler_url(monkeypatch):
     monkeypatch.setattr(db, "DATABASE_URL", "postgresql://u:p@aws-0-x.pooler.supabase.com:6543/postgres")
     with pytest.raises(db.ConfigError):
         db._validate_pg_config()
+
+
+def test_stream_chat_falls_back_when_primary_model_is_busy(monkeypatch):
+    import httpx2 as httpx  # همان کتابخانه‌ی HTTP که SDK استفاده می‌کند
+    from types import SimpleNamespace
+    from openai import RateLimitError
+
+    calls = []
+
+    def create(model, **kwargs):
+        calls.append(model)
+        if model == "primary":
+            resp = httpx.Response(429, request=httpx.Request("POST", "https://x"))
+            raise RateLimitError("quota", response=resp, body=None)
+        delta = SimpleNamespace(content="سلام")
+        return [SimpleNamespace(choices=[SimpleNamespace(delta=delta)])]
+
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    fake.with_options = lambda **kw: fake
+    monkeypatch.setattr(llm, "chat_client", lambda: fake)
+    monkeypatch.setattr(llm.config, "CHAT_MODEL", "primary")
+    monkeypatch.setattr(llm.config, "CHAT_FALLBACK_MODEL", "backup")
+    assert "".join(llm.stream_chat([])) == "سلام"
+    assert calls == ["primary", "backup"]
+
+
+def test_add_chunks_is_idempotent_for_retries():
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "x", "", "")
+    sid = db.create_source(org["org_id"], aid, "text", "s", "m")
+    items = [("", "متن یک"), ("", "متن دو")]
+    db.add_chunks(org["org_id"], aid, sid, items, fake_embed([t for _, t in items]))
+    db.add_chunks(org["org_id"], aid, sid, items, fake_embed([t for _, t in items]))  # تلاش دوباره
+    assert db.count_org_chunks(org["org_id"]) == 2

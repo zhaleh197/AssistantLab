@@ -10,6 +10,7 @@ SQL مشترک با «?» نوشته می‌شود و برای Postgres به «%
 import re
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 
 import numpy as np
@@ -219,7 +220,17 @@ def _configure_pg(conn) -> None:
 
     conn.execute(f"SET search_path TO {PG_SCHEMA}, extensions, public")
     register_vector(conn)
-    conn.commit()
+
+
+# هر رفت‌وبرگشت به سرور سوپابیس ~۱۰۰+ میلی‌ثانیه است؛ اتصالی که تازه استفاده شده دوباره بررسی نمی‌شود
+_CHECK_AFTER_IDLE = 30
+
+
+def _check_pg(conn) -> None:
+    from psycopg_pool import ConnectionPool
+
+    if time.monotonic() - getattr(conn, "_al_used", 0) > _CHECK_AFTER_IDLE:
+        ConnectionPool.check_connection(conn)
 
 
 def _get_pool():
@@ -234,12 +245,13 @@ def _get_pool():
                     DATABASE_URL, min_size=1, max_size=5, open=True, timeout=30,
                     # اتصال‌های بیکار را pooler سوپابیس ممکن است ببندد؛ زودتر عوضشان می‌کنیم
                     max_idle=60, max_lifetime=30 * 60, reconnect_timeout=60,
+                    # autocommit: هر دستور یک رفت‌وبرگشت؛ تراکنش فقط جایی که لازم است (connect(transaction=True))
                     kwargs={
-                        "row_factory": dict_row, "prepare_threshold": None,
+                        "row_factory": dict_row, "prepare_threshold": None, "autocommit": True,
                         "connect_timeout": 10,
                         "keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 10, "keepalives_count": 3,
                     },
-                    configure=_configure_pg, check=ConnectionPool.check_connection,
+                    configure=_configure_pg, check=_check_pg,
                 )
     return _pool
 
@@ -255,11 +267,18 @@ def reset() -> None:
 
 
 @contextmanager
-def connect():
+def connect(transaction: bool = False):
+    """transaction=True برای چند دستور که باید با هم انجام شوند (در SQLite همیشه تراکنشی است)."""
     if is_postgres():
         with _get_pool().connection() as raw:
-            yield _Conn(raw, pg=True)
-            raw.commit()
+            try:
+                if transaction:
+                    with raw.transaction():
+                        yield _Conn(raw, pg=True)
+                else:
+                    yield _Conn(raw, pg=True)
+            finally:
+                raw._al_used = time.monotonic()
         return
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     raw = sqlite3.connect(DB_PATH)
@@ -292,6 +311,17 @@ def _rows(rows) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def retry_on_disconnect(fn, attempts: int = 2):
+    """اجرای دوباره‌ی یک عملیات تکرارپذیر اگر اتصال به Postgres وسط کار قطع شود."""
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as e:
+            disconnected = type(e).__name__ in ("OperationalError", "PoolTimeout") and is_postgres()
+            if not disconnected or i == attempts - 1:
+                raise
+
+
 def _is_unique_violation(e: Exception) -> bool:
     if isinstance(e, sqlite3.IntegrityError):
         return "UNIQUE" in str(e)
@@ -302,7 +332,7 @@ def _is_unique_violation(e: Exception) -> bool:
 
 def create_org_with_admin(org_name: str, username: str, display_name: str, password_hash: str) -> dict:
     try:
-        with connect() as c:
+        with connect(transaction=True) as c:
             org_id = c.execute("INSERT INTO organizations (name) VALUES (?) RETURNING id", (org_name,)).fetchone()["id"]
             c.execute(
                 "INSERT INTO users (org_id, username, display_name, password_hash, role) VALUES (?, ?, ?, ?, 'admin')",
@@ -428,7 +458,9 @@ def add_chunks(org_id: int, assistant_id: int, source_id: int,
                items: list[tuple[str, str]], embeddings: np.ndarray) -> None:
     """items: لیست (location, content) هم‌ترتیب با embeddings."""
     emb = np.asarray(embeddings, dtype=np.float32)
-    with connect() as c:
+    with connect(transaction=True) as c:
+        # تکه‌های قبلی همین منبع پاک می‌شوند تا تلاش دوباره (بعد از قطع اتصال) تکراری نسازد
+        c.execute("DELETE FROM chunks WHERE source_id = ?", (source_id,))
         if c.pg:
             c.executemany(
                 """INSERT INTO chunks (org_id, assistant_id, source_id, idx, location, content, search_text, embedding)
@@ -459,33 +491,39 @@ def count_org_chunks(org_id: int) -> int:
 _CHUNK_COLUMNS = "ch.id, ch.source_id, ch.location, ch.content, s.name AS source_name"
 
 
-def vector_search(org_id: int, assistant_id: int, query_vec: np.ndarray, limit: int) -> list[dict]:
-    """فقط Postgres: نزدیک‌ترین تکه‌ها با فاصله‌ی کسینوسی pgvector."""
+def hybrid_search(org_id: int, assistant_id: int, query_vec: np.ndarray,
+                  tokens: list[str], limit: int) -> tuple[list[dict], list[dict]]:
+    """فقط Postgres: جستجوی معنایی (pgvector) و تمام‌متن در یک رفت‌وبرگشت.
+    دو فهرست رتبه‌بندی‌شده برمی‌گرداند: (بر اساس بردار، بر اساس کلیدواژه)."""
+    scope = "ch.org_id = ? AND ch.assistant_id = ? AND s.status = 'ready'"
+    vec = np.asarray(query_vec, dtype=np.float32)
+    params: list = [vec, org_id, assistant_id, vec, limit]
+    if tokens:
+        # توکن‌ها فقط حروف/عدد هستند (\w+)؛ هر توکن سؤال کافی است (OR)
+        keyword_cte = f"""SELECT ch.id, row_number() OVER (ORDER BY ts_rank_cd(ch.tsv, q) DESC) AS r
+                FROM chunks ch JOIN sources s ON s.id = ch.source_id, to_tsquery('simple', ?) AS q
+                WHERE {scope} AND ch.tsv @@ q
+                ORDER BY ts_rank_cd(ch.tsv, q) DESC LIMIT ?"""
+        params += [" | ".join(f"'{t}'" for t in dict.fromkeys(tokens)), org_id, assistant_id, limit]
+    else:
+        keyword_cte = "SELECT NULL::bigint AS id, NULL::bigint AS r WHERE false"
     with connect() as c:
-        return _rows(c.execute(
-            f"""SELECT {_CHUNK_COLUMNS}
+        rows = _rows(c.execute(
+            f"""WITH v AS (
+                    SELECT ch.id, row_number() OVER (ORDER BY ch.embedding <=> ?) AS r
+                    FROM chunks ch JOIN sources s ON s.id = ch.source_id
+                    WHERE {scope}
+                    ORDER BY ch.embedding <=> ? LIMIT ?
+                ), k AS ({keyword_cte})
+                SELECT {_CHUNK_COLUMNS}, v.r AS v_rank, k.r AS k_rank
                 FROM chunks ch JOIN sources s ON s.id = ch.source_id
-                WHERE ch.org_id = ? AND ch.assistant_id = ? AND s.status = 'ready'
-                ORDER BY ch.embedding <=> ? LIMIT ?""",
-            (org_id, assistant_id, np.asarray(query_vec, dtype=np.float32), limit),
+                LEFT JOIN v ON v.id = ch.id LEFT JOIN k ON k.id = ch.id
+                WHERE v.id IS NOT NULL OR k.id IS NOT NULL""",
+            params,
         ))
-
-
-def keyword_search(org_id: int, assistant_id: int, tokens: list[str], limit: int) -> list[dict]:
-    """فقط Postgres: جستجوی تمام‌متن؛ هر توکن سؤال کافی است (OR) و رتبه با ts_rank_cd."""
-    if not tokens:
-        return []
-    # توکن‌ها فقط حروف/عدد هستند (\\w+)؛ نقل‌قول برای امن بودن در نحو tsquery
-    query = " | ".join(f"'{t}'" for t in dict.fromkeys(tokens))
-    with connect() as c:
-        return _rows(c.execute(
-            f"""SELECT {_CHUNK_COLUMNS}
-                FROM chunks ch JOIN sources s ON s.id = ch.source_id,
-                     to_tsquery('simple', ?) AS q
-                WHERE ch.org_id = ? AND ch.assistant_id = ? AND s.status = 'ready' AND ch.tsv @@ q
-                ORDER BY ts_rank_cd(ch.tsv, q) DESC LIMIT ?""",
-            (query, org_id, assistant_id, limit),
-        ))
+    by_vector = sorted((r for r in rows if r["v_rank"] is not None), key=lambda r: r["v_rank"])
+    by_keyword = sorted((r for r in rows if r["k_rank"] is not None), key=lambda r: r["k_rank"])
+    return by_vector, by_keyword
 
 
 def chunks_signature(org_id: int, assistant_id: int) -> tuple:

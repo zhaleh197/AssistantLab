@@ -1,5 +1,6 @@
 """رابط کاربری اصلی (از طریق app.py اجرا می‌شود: streamlit run app.py)"""
 import json
+import time
 
 import streamlit as st
 
@@ -74,8 +75,23 @@ def login_screen() -> None:
                         sign_in(user["id"])
 
 
-# در هر اجرا کاربر از روی کوکی نشست شناسایی می‌شود؛ اگر نشست باطل یا کاربر حذف شده باشد، خارج می‌شود
-user = sessions.user_for_session(st.context.cookies.get(sessions.COOKIE_NAME))
+SESSION_RECHECK_SECONDS = 60
+
+
+def current_session_user() -> dict | None:
+    """کاربر از روی کوکی نشست شناسایی می‌شود. برای کم کردن رفت‌وبرگشت به دیتابیس، نتیجه تا
+    یک دقیقه در همین نشست مرورگر نگه داشته می‌شود؛ نشست باطل یا کاربر حذف‌شده حداکثر بعد از
+    یک دقیقه خارج می‌شود."""
+    token = st.context.cookies.get(sessions.COOKIE_NAME)
+    cached = st.session_state.get("_auth_cache")
+    if cached and cached["token"] == token and time.monotonic() - cached["at"] < SESSION_RECHECK_SECONDS:
+        return cached["user"]
+    user = sessions.user_for_session(token)
+    st.session_state["_auth_cache"] = {"token": token, "user": user, "at": time.monotonic()} if user else None
+    return user
+
+
+user = current_session_user()
 if not user:
     st.session_state.pop("user", None)
     login_screen()

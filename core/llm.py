@@ -3,12 +3,15 @@ from collections.abc import Iterator
 from functools import lru_cache
 
 import numpy as np
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI, RateLimitError
 
 import config
 
 EMBED_BATCH = 50
 MAX_EMBED_CHARS = 6000
+
+# خطاهایی که با رفتن سراغ مدل جایگزین حل می‌شوند (سهمیه، شلوغی، قطعی)
+TRANSIENT_ERRORS = (RateLimitError, InternalServerError, APITimeoutError, APIConnectionError)
 
 
 class MissingApiKey(RuntimeError):
@@ -33,6 +36,9 @@ def embed_client() -> OpenAI:
 def embed(texts: list[str]) -> np.ndarray:
     """بردارهای نرمال‌شده (طول ۱) برمی‌گرداند تا ضرب داخلی همان شباهت کسینوسی باشد."""
     client = embed_client()
+    if len(texts) == 1:
+        # بردار سؤال کاربر: کاربر منتظر است، پس تلاش مجدد کوتاه؛ برای افزودن منابع صبر بیشتر
+        client = client.with_options(max_retries=2, timeout=20)
     vectors: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH):
         batch = [t[:MAX_EMBED_CHARS] for t in texts[i:i + EMBED_BATCH]]
@@ -47,13 +53,30 @@ def embed(texts: list[str]) -> np.ndarray:
     return arr / np.where(norms == 0, 1, norms)
 
 
+def chat_models() -> list[str]:
+    models = [config.CHAT_MODEL]
+    if config.CHAT_FALLBACK_MODEL and config.CHAT_FALLBACK_MODEL != config.CHAT_MODEL:
+        models.append(config.CHAT_FALLBACK_MODEL)
+    return models
+
+
 def stream_chat(messages: list[dict], temperature: float = 0.2) -> Iterator[str]:
-    stream = chat_client().chat.completions.create(
-        model=config.CHAT_MODEL, messages=messages, temperature=temperature, stream=True,
-    )
-    for event in stream:
-        if event.choices and event.choices[0].delta.content:
-            yield event.choices[0].delta.content
+    """اگر مدل اصلی شلوغ یا بیش از سهمیه باشد، به‌جای تلاش‌های طولانی فوراً مدل جایگزین امتحان می‌شود."""
+    client = chat_client().with_options(max_retries=1, timeout=60)
+    last_error: Exception | None = None
+    for model in chat_models():
+        try:
+            stream = client.chat.completions.create(
+                model=model, messages=messages, temperature=temperature, stream=True,
+            )
+        except TRANSIENT_ERRORS as e:
+            last_error = e
+            continue
+        for event in stream:
+            if event.choices and event.choices[0].delta.content:
+                yield event.choices[0].delta.content
+        return
+    raise last_error
 
 
 def list_models() -> list[str]:

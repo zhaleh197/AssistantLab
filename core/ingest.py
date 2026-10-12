@@ -27,7 +27,7 @@ def ingest(org_id: int, assistant_id: int, kind: str, name: str, segments: Segme
 
         # نام منبع کنار متن embed می‌شود تا جستجو زمینه‌ی تکه را هم بداند
         vectors = llm.embed([f"{name}\n{loc}\n{text}".strip() for loc, text in items])
-        db.add_chunks(org_id, assistant_id, source_id, items, vectors)
+        db.retry_on_disconnect(lambda: db.add_chunks(org_id, assistant_id, source_id, items, vectors))
         db.set_source_status(source_id, "ready", n_chunks=len(items))
         return len(items)
     except Exception as e:

@@ -34,7 +34,9 @@ GEMINI_OPENAI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 # مدل گفتگو (هر سرویس سازگار با OpenAI: Gemini، Groq، OpenRouter، ...)
 CHAT_BASE_URL = os.getenv("CHAT_BASE_URL", GEMINI_OPENAI_URL)
 CHAT_API_KEY = os.getenv("CHAT_API_KEY", "")
-CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-3.8-flash")
+# flash-lite در پلن رایگان سریع‌ترین و پایدارترین بود (~۱ ثانیه)؛ اگر شلوغ باشد مدل جایگزین امتحان می‌شود
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-3.5-flash-lite")
+CHAT_FALLBACK_MODEL = os.getenv("CHAT_FALLBACK_MODEL", "gemini-3.5-flash")
 
 # مدل Embedding (اگر کلید جدا داده نشود، از کلید گفتگو استفاده می‌شود)
 EMBED_BASE_URL = os.getenv("EMBED_BASE_URL", GEMINI_OPENAI_URL)
