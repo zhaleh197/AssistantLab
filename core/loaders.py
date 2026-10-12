@@ -178,8 +178,8 @@ def _assert_public_host(url: str) -> None:
 
 
 JS_SITE_MSG = (
-    "این صفحه محتوایش را با جاوااسکریپت می‌سازد و برای خواندنش مرورگر Playwright لازم است. "
-    "نصب: pip install playwright و سپس python -m playwright install chromium-headless-shell"
+    "این صفحه محتوایش را با جاوااسکریپت می‌سازد و روی این سرور قابل خواندن نیست. "
+    "متن صفحه را کپی کنید و از تب «متن» اضافه کنید، یا اگر سایت نسخه‌ی PDF دارد آن را بارگذاری کنید."
 )
 
 

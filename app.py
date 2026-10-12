@@ -13,6 +13,10 @@ import config  # noqa: F401  (تنظیمات محیطی، از جمله اصلا
 from core import db, sessions
 
 
+# بازگشت نسبی به صفحه‌ی اصلی: از /auth/finish به / و از /~/+/auth/finish (Streamlit Cloud) به /~/+/
+HOME = "../"
+
+
 def _is_https(request) -> bool:
     # پشت پراکسی (Hugging Face و ...) پروتکل واقعی در این هدر است
     return request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
@@ -20,7 +24,7 @@ def _is_https(request) -> bool:
 
 def auth_finish(request):
     token = sessions.exchange_ticket(request.query_params.get("ticket", ""))
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse(HOME, status_code=303)
     if token:
         secure = _is_https(request)
         response.set_cookie(
@@ -34,7 +38,7 @@ def auth_finish(request):
 
 def auth_logout(request):
     sessions.revoke(request.cookies.get(sessions.COOKIE_NAME))
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse(HOME, status_code=303)
     secure = _is_https(request)
     response.delete_cookie(
         sessions.COOKIE_NAME, path="/", httponly=True, secure=secure, samesite="none" if secure else "lax",

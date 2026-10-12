@@ -21,7 +21,8 @@ except Exception as e:  # تنظیمات اشتباه DATABASE_URL یا قطع �
 
 
 def redirect(url: str) -> None:
-    """انتقال مرورگر به مسیرهای ورود/خروج سرور (app.py) که کوکی را تنظیم می‌کنند."""
+    """انتقال مرورگر به مسیرهای ورود/خروج سرور (app.py) که کوکی را تنظیم می‌کنند.
+    آدرس نسبی است تا وقتی برنامه زیر یک مسیر پایه اجرا می‌شود (مثل /~/+/ در Streamlit Cloud) هم درست کار کند."""
     st.html(f"<script>window.location.replace({json.dumps(url)});</script>", unsafe_allow_javascript=True)
     st.info("در حال انتقال...")
     st.link_button("اگر منتقل نشدید، اینجا را بزنید", url)
@@ -29,7 +30,7 @@ def redirect(url: str) -> None:
 
 
 def sign_in(user_id: int) -> None:
-    redirect(f"/auth/finish?ticket={sessions.create_ticket(user_id)}")
+    redirect(f"auth/finish?ticket={sessions.create_ticket(user_id)}")
 
 
 def login_screen() -> None:
@@ -118,7 +119,7 @@ with st.sidebar:
         st.warning("کلید API تنظیم نشده است (فایل .env).")
     if st.button("خروج", icon=":material/logout:"):
         st.session_state.clear()
-        redirect("/auth/logout")
+        redirect("auth/logout")
 
 nav.run()
 perf.log(f"== full rerun ({nav.title})", (time.perf_counter() - _run_started) * 1000)

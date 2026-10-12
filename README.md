@@ -1,14 +1,3 @@
----
-title: AssistantLab
-emoji: 🤖
-colorFrom: indigo
-colorTo: blue
-sdk: docker
-app_port: 7860
-pinned: false
-short_description: Build RAG assistants from your organization's documents
----
-
 # AssistantLab
 
 سامانه‌ای که هر سازمان در آن دستیار هوشمند خودش را می‌سازد: منابع (PDF، Word، اکسل، لینک وب، متن و...) را اضافه می‌کند و اعضای سازمان با دستیار گفتگو می‌کنند. پاسخ‌ها فقط بر پایه‌ی همان منابع و همراه با ارجاع هستند (RAG).
@@ -90,27 +79,30 @@ set TEST_DATABASE_URL=postgresql://...
 .venv\Scripts\python -m pytest tests
 ```
 
-## انتشار روی Hugging Face Spaces
+## انتشار روی Streamlit Community Cloud (رایگان)
 
-۱. در Hugging Face یک Space بسازید: **SDK: Docker**، قالب **Blank**، سخت‌افزار **CPU basic (رایگان)**.
+۱. به [share.streamlit.io](https://share.streamlit.io) بروید و با حساب GitHub وارد شوید.
 
-۲. در **Settings → Variables and secrets** این‌ها را به‌صورت **Secret** اضافه کنید:
-   - `CHAT_API_KEY`: کلید Gemini
-   - `DATABASE_URL`: آدرس Session pooler سوپابیس
+۲. **Create app** ← **Deploy a public app from GitHub** و این‌ها را پر کنید:
+   - **Repository:** مخزن همین پروژه
+   - **Branch:** `main`
+   - **Main file path:** `app.py`
+   - **App URL:** آدرس دلخواه (مثلاً `assistantlab`)
 
-۳. کد را به مخزن Space بفرستید:
-```bash
-git remote add space https://huggingface.co/spaces/<username>/<space-name>
-git push space main
-```
-برای رمز، یک **Access Token** با دسترسی Write از **Settings → Access Tokens** در Hugging Face بسازید.
+۳. در **Advanced settings**:
+   - **Python version:** 3.12
+   - **Secrets:** (با فرمت TOML، داخل گیومه)
+     ```toml
+     CHAT_API_KEY = "..."
+     DATABASE_URL = "postgresql://..."
+     ```
 
-۴. ساخت ایمیج چند دقیقه طول می‌کشد. بعد برنامه را از آدرس مستقیم `https://<username>-<space-name>.hf.space` باز کنید، **نه از صفحه‌ی Space در huggingface.co**: آنجا برنامه داخل iframe است و مرورگر کوکی ورود و آپلود فایل را مسدود می‌کند.
+۴. **Deploy** را بزنید. نصب اولیه چند دقیقه طول می‌کشد.
 
 نکته‌ها:
-- فایل‌های Space عمومی هستند (کد، نه Secretها). اگر Space را Private کنید، فقط اعضای حساب Hugging Face شما می‌توانند برنامه را باز کنند.
-- Space رایگان بعد از ۴۸ ساعت بی‌استفاده می‌خوابد و با اولین بازدید دوباره روشن می‌شود (کمتر از یک دقیقه). داده‌ها در Supabase هستند و پاک نمی‌شوند.
-- بدون `DATABASE_URL` برنامه با SQLite موقت اجرا می‌شود که با هر ری‌استارت پاک می‌شود.
+- برنامه بعد از ۱۲ ساعت بی‌استفاده می‌خوابد و اولین بازدید بعدش ۱۰ تا ۳۰ ثانیه طول می‌کشد. داده‌ها در Supabase هستند و پاک نمی‌شوند.
+- مرورگر Playwright روی Streamlit Cloud نصب نیست؛ سایت‌هایی که محتوایشان را با جاوااسکریپت می‌سازند قابل افزودن نیستند (سایت‌های معمولی و خزیدن مشکلی ندارند).
+- `Dockerfile` برای میزبان‌هایی است که Docker اجرا می‌کنند (پورت 7860، کاربر غیر root).
 
 ## محدودیت‌های نسخه‌ی فعلی
 
