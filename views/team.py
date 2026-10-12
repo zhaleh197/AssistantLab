@@ -1,5 +1,3 @@
-import sqlite3
-
 import streamlit as st
 
 from core import auth, db
@@ -30,8 +28,8 @@ with st.expander("➕ افزودن عضو"):
                 try:
                     db.create_user(org_id, username, display_name.strip(), auth.hash_password(password), role)
                     st.success(f"«{display_name}» اضافه شد. نام کاربری و رمز را به او بدهید.")
-                except sqlite3.IntegrityError:
-                    st.error("این نام کاربری قبلاً ثبت شده است.")
+                except db.DuplicateError as e:
+                    st.error(str(e))
 
 for m in db.list_users(org_id):
     cols = st.columns([4, 3, 2, 1])

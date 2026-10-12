@@ -9,7 +9,11 @@ from core.ui import apply_style
 
 st.set_page_config(page_title="AssistantLab", page_icon="🤖", layout="wide")
 apply_style()
-db.init_db()
+try:
+    db.init_db()
+except Exception as e:  # تنظیمات اشتباه DATABASE_URL یا قطع اتصال
+    st.error(f"اتصال به دیتابیس برقرار نشد: {e}")
+    st.stop()
 
 
 def redirect(url: str) -> None:
@@ -60,10 +64,14 @@ def login_screen() -> None:
                 if error:
                     st.error(error)
                 else:
-                    user = db.create_org_with_admin(
-                        org_name.strip(), username, display_name.strip(), auth.hash_password(password)
-                    )
-                    sign_in(user["id"])
+                    try:
+                        user = db.create_org_with_admin(
+                            org_name.strip(), username, display_name.strip(), auth.hash_password(password)
+                        )
+                    except db.DuplicateError as e:
+                        st.error(str(e))
+                    else:
+                        sign_in(user["id"])
 
 
 # در هر اجرا کاربر از روی کوکی نشست شناسایی می‌شود؛ اگر نشست باطل یا کاربر حذف شده باشد، خارج می‌شود

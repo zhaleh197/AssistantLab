@@ -3,7 +3,7 @@ import streamlit as st
 import config
 from core import crawler, db, loaders
 from core.ingest import ingest
-from core.ui import pick_assistant, require_admin
+from core.ui import format_time, pick_assistant, require_admin
 
 user = require_admin()
 org_id = user["org_id"]
@@ -89,7 +89,7 @@ if not sources:
 
 for s in sources:
     cols = st.columns([5, 2, 2, 1])
-    cols[0].markdown(f"**{s['name']}**  \n{KIND_LABELS[s['kind']]} · {s['created_at'][:16]}")
+    cols[0].markdown(f"**{s['name']}**  \n{KIND_LABELS[s['kind']]} · {format_time(s['created_at'])}")
     cols[1].write(STATUS_LABELS[s["status"]])
     cols[2].write(f"{s['n_chunks']} تکه" if s["status"] == "ready" else "")
     if cols[3].button("🗑️", key=f"del_src_{s['id']}", help="حذف منبع"):

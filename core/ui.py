@@ -1,4 +1,7 @@
 """ابزارهای مشترک رابط کاربری Streamlit."""
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import streamlit as st
 
 RTL_CSS = """
@@ -21,6 +24,18 @@ code, pre, [data-testid="stCode"] { direction: ltr; text-align: left; }
               white-space: pre-wrap; }
 </style>
 """
+
+
+def format_time(value) -> str:
+    """SQLite زمان محلی را به‌صورت متن برمی‌گرداند و Postgres به‌صورت datetime (UTC)؛
+    دومی به منطقه‌ی زمانی مرورگر کاربر تبدیل می‌شود."""
+    if isinstance(value, datetime):
+        try:
+            value = value.astimezone(ZoneInfo(st.context.timezone or "UTC"))
+        except Exception:  # منطقه‌ی زمانی نامعلوم یا نبود پایگاه tzdata
+            pass
+        return value.strftime("%Y-%m-%d %H:%M")
+    return str(value or "")[:16]
 
 
 def apply_style() -> None:

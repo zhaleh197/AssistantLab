@@ -31,5 +31,8 @@ def ingest(org_id: int, assistant_id: int, kind: str, name: str, segments: Segme
         db.set_source_status(source_id, "ready", n_chunks=len(items))
         return len(items)
     except Exception as e:
-        db.set_source_status(source_id, "error", error=str(e)[:500])
+        try:
+            db.set_source_status(source_id, "error", error=str(e)[:500])
+        except Exception:
+            pass  # اگر خود دیتابیس در دسترس نیست، خطای اصلی مهم‌تر است و نباید پنهان شود
         raise

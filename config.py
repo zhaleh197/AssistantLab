@@ -41,6 +41,13 @@ EMBED_BASE_URL = os.getenv("EMBED_BASE_URL", GEMINI_OPENAI_URL)
 EMBED_API_KEY = os.getenv("EMBED_API_KEY", "") or CHAT_API_KEY
 EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
 
+# ابعاد بردار Embedding (۷۶۸ یک‌چهارم حجم ۳۰۷۲ است). صفر = پیش‌فرض خود مدل.
+# بعد از افزودن منابع عوضش نکنید؛ ستون بردار در Postgres همین ابعاد را دارد.
+EMBED_DIMENSIONS = int(os.getenv("EMBED_DIMENSIONS", 768))
+
+# ذخیره‌سازی: اگر DATABASE_URL (مثلاً Session pooler سوپابیس) تنظیم شود Postgres، وگرنه SQLite محلی
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DB_SCHEMA = os.getenv("DB_SCHEMA", "assistantlab")
 DATA_DIR = Path(os.getenv("DATA_DIR", ROOT / "data"))
 DB_PATH = DATA_DIR / "assistantlab.db"
 

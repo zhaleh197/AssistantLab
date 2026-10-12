@@ -36,7 +36,8 @@ def embed(texts: list[str]) -> np.ndarray:
     vectors: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH):
         batch = [t[:MAX_EMBED_CHARS] for t in texts[i:i + EMBED_BATCH]]
-        resp = client.embeddings.create(model=config.EMBED_MODEL, input=batch)
+        extra = {"dimensions": config.EMBED_DIMENSIONS} if config.EMBED_DIMENSIONS else {}
+        resp = client.embeddings.create(model=config.EMBED_MODEL, input=batch, **extra)
         if len(resp.data) != len(batch):
             raise RuntimeError(f"سرویس Embedding برای {len(batch)} متن، {len(resp.data)} بردار برگرداند.")
         # Gemini برای اولین مورد index را خالی (None) می‌فرستد؛ None همان 0 است

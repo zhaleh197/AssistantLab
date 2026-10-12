@@ -1,5 +1,7 @@
 import hashlib
 import io
+import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -12,21 +14,50 @@ from core import auth, db, ingest, llm, loaders, rag, retrieval  # noqa: E402
 from core.text import chunk_text, clean, tokenize  # noqa: E402
 
 
+# برای اجرای تست‌ها روی Postgres واقعی (مثلاً Supabase) این متغیر را تنظیم کنید؛
+# تست‌ها در یک schema موقت اجرا می‌شوند که در پایان حذف می‌شود.
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "")
+FAKE_DIMS = 64
+
+
 def fake_embed(texts):
     """Embedding جعلی بر پایه‌ی کلمات، تا تست‌ها بدون API اجرا شوند."""
-    out = np.zeros((len(texts), 64), dtype=np.float32)
+    out = np.zeros((len(texts), FAKE_DIMS), dtype=np.float32)
     for i, t in enumerate(texts):
         for tok in tokenize(t):
-            out[i, int(hashlib.md5(tok.encode()).hexdigest(), 16) % 64] += 1
+            out[i, int(hashlib.md5(tok.encode()).hexdigest(), 16) % FAKE_DIMS] += 1
     norms = np.linalg.norm(out, axis=1, keepdims=True)
     return out / np.where(norms == 0, 1, norms)
 
 
-@pytest.fixture(autouse=True)
-def tmp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+@pytest.fixture(scope="session")
+def pg_schema():
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL تنظیم نشده است")
+    import psycopg
+
+    schema = f"assistantlab_test_{secrets.token_hex(4)}"
+    yield schema
+    db.reset()
+    with psycopg.connect(TEST_DATABASE_URL, autocommit=True, prepare_threshold=None) as conn:
+        conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+
+@pytest.fixture(autouse=True, params=["sqlite", "postgres"])
+def backend(request, tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "embed", fake_embed)
-    db.init_db()
+    monkeypatch.setattr(db, "EMBED_DIMS", FAKE_DIMS)
+    if request.param == "sqlite":
+        monkeypatch.setattr(db, "DATABASE_URL", "")
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+        db.init_db()
+    else:
+        monkeypatch.setattr(db, "DATABASE_URL", TEST_DATABASE_URL)
+        monkeypatch.setattr(db, "PG_SCHEMA", request.getfixturevalue("pg_schema"))
+        db.init_db()
+        with db.connect() as c:
+            c.execute("TRUNCATE organizations, auth_tokens RESTART IDENTITY CASCADE")
+    return request.param
 
 
 def make_org(name="org", username="admin1"):
@@ -293,3 +324,25 @@ def test_crawl_with_no_readable_page_raises(monkeypatch):
     crawler = _fake_site(monkeypatch, {})
     with pytest.raises(loaders.UnsupportedSource):
         crawler.crawl("https://site.com/", max_pages=5)
+
+
+def test_keyword_search_matches_persian_regardless_of_zwnj():
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "x", "", "")
+    ingest.ingest(org["org_id"], aid, "text", "قوانین", [("", "کارمندان می‌توانند دورکاری کنند.")])
+    ingest.ingest(org["org_id"], aid, "text", "دیگر", [("", "ساعت کاری از هشت صبح است.")])
+    assert retrieval.search(org["org_id"], aid, "میتوانند", k=1)[0].source_name == "قوانین"
+
+
+def test_duplicate_username_raises_duplicate_error():
+    org = make_org()
+    with pytest.raises(db.DuplicateError):
+        db.create_user(org["org_id"], "admin1", "x", auth.hash_password("password123"), "member")
+    with pytest.raises(db.DuplicateError):
+        make_org("other", "admin1")
+
+
+def test_rejects_transaction_pooler_url(monkeypatch):
+    monkeypatch.setattr(db, "DATABASE_URL", "postgresql://u:p@aws-0-x.pooler.supabase.com:6543/postgres")
+    with pytest.raises(db.ConfigError):
+        db._validate_pg_config()
