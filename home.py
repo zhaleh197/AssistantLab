@@ -5,13 +5,16 @@ import time
 import streamlit as st
 
 import config
-from core import auth, db, sessions
+from core import auth, db, perf, sessions
+
+_run_started = time.perf_counter()
 from core.ui import apply_style
 
 st.set_page_config(page_title="AssistantLab", page_icon="🤖", layout="wide")
 apply_style()
 try:
-    db.init_db()
+    with perf.timed("init_db"):
+        db.init_db()
 except Exception as e:  # تنظیمات اشتباه DATABASE_URL یا قطع اتصال
     st.error(f"اتصال به دیتابیس برقرار نشد: {e}")
     st.stop()
@@ -91,7 +94,8 @@ def current_session_user() -> dict | None:
     return user
 
 
-user = current_session_user()
+with perf.timed("session user"):
+    user = current_session_user()
 if not user:
     st.session_state.pop("user", None)
     login_screen()
@@ -117,3 +121,4 @@ with st.sidebar:
         redirect("/auth/logout")
 
 nav.run()
+perf.log(f"== full rerun ({nav.title})", (time.perf_counter() - _run_started) * 1000)

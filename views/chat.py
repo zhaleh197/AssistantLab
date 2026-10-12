@@ -1,16 +1,18 @@
 import html
+import time
 
 import streamlit as st
 from openai import APIError, NotFoundError
 
-from core import db, llm, rag, retrieval
+from core import db, llm, perf, rag, retrieval
 from core.ui import current_user, pick_assistant
 import config
 
 user = current_user()
 org_id = user["org_id"]
 
-assistants = db.list_assistants(org_id)
+with perf.timed("list_assistants"):
+    assistants = db.list_assistants(org_id)
 if not assistants:
     st.title("گفتگو")
     if user["role"] == "admin":
@@ -62,7 +64,18 @@ if question:
             with st.spinner("در حال جستجو در منابع..."):
                 hits = retrieval.search(org_id, assistant["id"], rag.retrieval_query(history, question), config.TOP_K)
             messages = rag.build_messages(assistant, history, question, hits)
-            answer = st.write_stream(llm.stream_chat(messages))
+            started = time.perf_counter()
+
+            def timed_stream():
+                first = True
+                for piece in llm.stream_chat(messages):
+                    if first:
+                        perf.log("llm first token", (time.perf_counter() - started) * 1000)
+                        first = False
+                    yield piece
+
+            answer = st.write_stream(timed_stream())
+            perf.log("llm full answer", (time.perf_counter() - started) * 1000)
         except llm.MissingApiKey as e:
             st.error(str(e))
             st.stop()

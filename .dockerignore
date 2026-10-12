@@ -1,8 +1,11 @@
-.venv/
-.env
-data/
-__pycache__/
-.pytest_cache/
+.agents/
 .claude/
-tests/
+.env
+.git/
 .playwright/
+.pytest_cache/
+.tmp/
+.venv/
+__pycache__/
+data/
+tests/

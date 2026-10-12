@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 from rank_bm25 import BM25Okapi
 
-from core import db, llm
+from core import db, llm, perf
 from core.text import tokenize
 
 RRF_K = 60
@@ -79,8 +79,10 @@ def _memory_candidates(org_id: int, assistant_id: int, query: str) -> tuple[list
 
 def _database_candidates(org_id: int, assistant_id: int, query: str) -> tuple[list[dict], list[dict]]:
     """Postgres: pgvector و جستجوی تمام‌متن، هر دو داخل دیتابیس و در یک رفت‌وبرگشت."""
-    qvec = llm.embed([query])[0]
-    return db.hybrid_search(org_id, assistant_id, qvec, tokenize(query), CANDIDATES)
+    with perf.timed("embed query"):
+        qvec = llm.embed([query])[0]
+    with perf.timed("hybrid_search (db)"):
+        return db.hybrid_search(org_id, assistant_id, qvec, tokenize(query), CANDIDATES)
 
 
 def search(org_id: int, assistant_id: int, query: str, k: int) -> list[Hit]:

@@ -1,3 +1,14 @@
+---
+title: AssistantLab
+emoji: 🤖
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: Build RAG assistants from your organization's documents
+---
+
 # AssistantLab
 
 سامانه‌ای که هر سازمان در آن دستیار هوشمند خودش را می‌سازد: منابع (PDF، Word، اکسل، لینک وب، متن و...) را اضافه می‌کند و اعضای سازمان با دستیار گفتگو می‌کنند. پاسخ‌ها فقط بر پایه‌ی همان منابع و همراه با ارجاع هستند (RAG).
@@ -81,7 +92,25 @@ set TEST_DATABASE_URL=postgresql://...
 
 ## انتشار روی Hugging Face Spaces
 
-یک Space از نوع **Docker** بسازید، فایل‌ها را push کنید و در **Settings → Secrets** مقدارهای `CHAT_API_KEY` و `DATABASE_URL` را تعریف کنید. `Dockerfile` آماده است. با Supabase، داده‌ها با ری‌استارت Space پاک نمی‌شوند.
+۱. در Hugging Face یک Space بسازید: **SDK: Docker**، قالب **Blank**، سخت‌افزار **CPU basic (رایگان)**.
+
+۲. در **Settings → Variables and secrets** این‌ها را به‌صورت **Secret** اضافه کنید:
+   - `CHAT_API_KEY`: کلید Gemini
+   - `DATABASE_URL`: آدرس Session pooler سوپابیس
+
+۳. کد را به مخزن Space بفرستید:
+```bash
+git remote add space https://huggingface.co/spaces/<username>/<space-name>
+git push space main
+```
+برای رمز، یک **Access Token** با دسترسی Write از **Settings → Access Tokens** در Hugging Face بسازید.
+
+۴. ساخت ایمیج چند دقیقه طول می‌کشد. بعد برنامه را از آدرس مستقیم `https://<username>-<space-name>.hf.space` باز کنید، **نه از صفحه‌ی Space در huggingface.co**: آنجا برنامه داخل iframe است و مرورگر کوکی ورود و آپلود فایل را مسدود می‌کند.
+
+نکته‌ها:
+- فایل‌های Space عمومی هستند (کد، نه Secretها). اگر Space را Private کنید، فقط اعضای حساب Hugging Face شما می‌توانند برنامه را باز کنند.
+- Space رایگان بعد از ۴۸ ساعت بی‌استفاده می‌خوابد و با اولین بازدید دوباره روشن می‌شود (کمتر از یک دقیقه). داده‌ها در Supabase هستند و پاک نمی‌شوند.
+- بدون `DATABASE_URL` برنامه با SQLite موقت اجرا می‌شود که با هر ری‌استارت پاک می‌شود.
 
 ## محدودیت‌های نسخه‌ی فعلی
 
