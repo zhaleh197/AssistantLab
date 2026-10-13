@@ -6,10 +6,10 @@
 from pathlib import Path
 
 import streamlit as st
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Route
 
-import config  # noqa: F401  (تنظیمات محیطی، از جمله اصلاح SSL_CERT_FILE)
+import config  # تنظیمات محیطی، از جمله اصلاح SSL_CERT_FILE
 from core import db, sessions
 
 
@@ -46,9 +46,25 @@ def auth_logout(request):
     return response
 
 
+def auth_status(request):
+    """عیب‌یابی انتشار: فقط بله/خیر، بدون هیچ مقدار محرمانه."""
+    token = request.cookies.get(sessions.COOKIE_NAME)
+    return JSONResponse({
+        "storage": "postgres" if db.is_postgres() else "sqlite (temporary)",
+        "chat_api_key_set": bool(config.CHAT_API_KEY),
+        "session_cookie_received": bool(token),
+        "session_valid": bool(sessions.user_for_session(token)) if token else False,
+        "https": _is_https(request),
+    })
+
+
 db.init_db()
 
 app = st.App(
     Path(__file__).parent / "home.py",
-    routes=[Route("/auth/finish", auth_finish), Route("/auth/logout", auth_logout)],
+    routes=[
+        Route("/auth/finish", auth_finish),
+        Route("/auth/logout", auth_logout),
+        Route("/auth/status", auth_status),
+    ],
 )
