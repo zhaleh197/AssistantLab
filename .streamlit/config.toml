@@ -6,3 +6,8 @@ gatherUsageStats = false
 
 [theme]
 primaryColor = "#4f6bed"
+
+[client]
+# جزئیات خطا (مسیر فایل‌ها، کد) به کاربر نمایش داده نمی‌شود و فقط در لاگ سرور می‌آید.
+# برای دیدن جزئیات هنگام توسعه: STREAMLIT_CLIENT_SHOW_ERROR_DETAILS=full
+showErrorDetails = "none"

@@ -234,27 +234,25 @@ def test_build_messages_contains_sources_and_persona():
 
 # ---------- ورود ماندگار ----------
 
-def test_ticket_exchange_is_single_use_and_creates_session():
+def test_session_identifies_user_without_password_hash():
     from core import sessions
 
     user = make_org()
-    ticket = sessions.create_ticket(user["id"])
-    token = sessions.exchange_ticket(ticket)
-    assert token and sessions.user_for_session(token)["id"] == user["id"]
-    assert "password_hash" not in sessions.user_for_session(token)
-    assert sessions.exchange_ticket(ticket) is None          # بلیت فقط یک بار مصرف می‌شود
-    assert sessions.user_for_session(ticket) is None         # بلیت به‌جای نشست قبول نمی‌شود
+    token = sessions.create_session(user["id"])
+    found = sessions.user_for_session(token)
+    assert found["id"] == user["id"] and found["org_name"] == "org"
+    assert "password_hash" not in found
 
 
-def test_expired_ticket_and_revoked_session(monkeypatch):
+def test_expired_and_revoked_sessions_are_rejected(monkeypatch):
     from core import sessions
 
     user = make_org()
-    monkeypatch.setattr(sessions, "TICKET_TTL", -1)
-    assert sessions.exchange_ticket(sessions.create_ticket(user["id"])) is None
+    monkeypatch.setattr(sessions, "SESSION_TTL", -1)
+    assert sessions.user_for_session(sessions.create_session(user["id"])) is None
 
-    monkeypatch.setattr(sessions, "TICKET_TTL", 60)
-    token = sessions.exchange_ticket(sessions.create_ticket(user["id"]))
+    monkeypatch.setattr(sessions, "SESSION_TTL", 3600)
+    token = sessions.create_session(user["id"])
     sessions.revoke(token)
     assert sessions.user_for_session(token) is None
     assert sessions.user_for_session("") is None and sessions.user_for_session("garbage") is None
@@ -266,7 +264,7 @@ def test_deleting_user_ends_their_sessions():
     admin = make_org()
     db.create_user(admin["org_id"], "member1", "M", auth.hash_password("password123"), "member")
     member = db.get_user_by_username("member1")
-    token = sessions.exchange_ticket(sessions.create_ticket(member["id"]))
+    token = sessions.create_session(member["id"])
     db.delete_user(admin["org_id"], member["id"])
     assert sessions.user_for_session(token) is None
 

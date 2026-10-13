@@ -1,10 +1,7 @@
 """نشست‌های ماندگار ورود.
 
-جریان ورود:
-  ۱. بعد از بررسی رمز، یک «بلیت» یک‌بارمصرف و کوتاه‌عمر ساخته می‌شود.
-  ۲. مرورگر به /auth/finish?ticket=... می‌رود؛ آن مسیر بلیت را با یک توکن نشست عوض می‌کند
-     و توکن را در کوکی HttpOnly می‌گذارد (Streamlit خودش نمی‌تواند کوکی تنظیم کند).
-  ۳. در هر اجرا، کاربر از روی کوکی شناسایی می‌شود.
+بعد از بررسی رمز یک توکن نشست تصادفی ساخته می‌شود و در مرورگر نگه داشته می‌شود
+(core/browser_store.py)؛ در هر بازدید، کاربر از روی همان توکن شناسایی می‌شود.
 در دیتابیس فقط هش توکن‌ها ذخیره می‌شود.
 """
 import hashlib
@@ -13,9 +10,7 @@ import time
 
 from core import db
 
-COOKIE_NAME = "al_session"
 SESSION_TTL = 30 * 24 * 3600
-TICKET_TTL = 60
 
 
 def _hash(token: str) -> str:
@@ -33,22 +28,8 @@ def _create(user_id: int, kind: str, ttl: int) -> str:
     return token
 
 
-def create_ticket(user_id: int) -> str:
-    return _create(user_id, "ticket", TICKET_TTL)
-
-
-def exchange_ticket(ticket: str) -> str | None:
-    """بلیت را مصرف می‌کند و توکن نشست برمی‌گرداند (یا None اگر نامعتبر/منقضی باشد)."""
-    if not ticket:
-        return None
-    with db.connect() as c:
-        row = c.execute(
-            "DELETE FROM auth_tokens WHERE token_hash = ? AND kind = 'ticket' RETURNING user_id, expires_at",
-            (_hash(ticket),),
-        ).fetchone()
-    if not row or row["expires_at"] < time.time():
-        return None
-    return _create(row["user_id"], "session", SESSION_TTL)
+def create_session(user_id: int) -> str:
+    return _create(user_id, "session", SESSION_TTL)
 
 
 def user_for_session(token: str | None) -> dict | None:
