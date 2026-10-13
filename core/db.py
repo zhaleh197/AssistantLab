@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS assistants (
     name TEXT NOT NULL,
     description TEXT DEFAULT '',
     system_prompt TEXT DEFAULT '',
+    answer_mode TEXT NOT NULL DEFAULT 'sources' CHECK (answer_mode IN ('sources', 'sources_and_general')),
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 CREATE TABLE IF NOT EXISTS sources (
@@ -118,6 +119,7 @@ CREATE TABLE IF NOT EXISTS assistants (
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     system_prompt TEXT NOT NULL DEFAULT '',
+    answer_mode TEXT NOT NULL DEFAULT 'sources' CHECK (answer_mode IN ('sources', 'sources_and_general')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS sources (
@@ -158,6 +160,10 @@ CREATE INDEX IF NOT EXISTS ix_sources_assistant ON sources(org_id, assistant_id)
 CREATE INDEX IF NOT EXISTS ix_assistants_org ON assistants(org_id);
 CREATE INDEX IF NOT EXISTS ix_users_org ON users(org_id);
 CREATE INDEX IF NOT EXISTS ix_auth_tokens_user ON auth_tokens(user_id);
+
+-- مهاجرت: ستون‌هایی که بعد از ساخت اولیه‌ی جدول‌ها اضافه شده‌اند
+ALTER TABLE assistants ADD COLUMN IF NOT EXISTS answer_mode TEXT NOT NULL DEFAULT 'sources'
+    CHECK (answer_mode IN ('sources', 'sources_and_general'));
 """
 
 
@@ -304,6 +310,12 @@ def init_db() -> None:
         else:
             with connect() as c:
                 c.raw.executescript(SQLITE_SCHEMA)
+                columns = {r["name"] for r in c.execute("PRAGMA table_info(assistants)")}
+                if "answer_mode" not in columns:
+                    c.execute(
+                        "ALTER TABLE assistants ADD COLUMN answer_mode TEXT NOT NULL DEFAULT 'sources' "
+                        "CHECK (answer_mode IN ('sources', 'sources_and_general'))"
+                    )
         _initialized.add(key)
 
 
@@ -403,19 +415,26 @@ def get_assistant(org_id: int, assistant_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def create_assistant(org_id: int, name: str, description: str, system_prompt: str) -> int:
+ANSWER_MODES = ("sources", "sources_and_general")
+
+
+def create_assistant(org_id: int, name: str, description: str, system_prompt: str,
+                     answer_mode: str = "sources") -> int:
     with connect() as c:
         return c.execute(
-            "INSERT INTO assistants (org_id, name, description, system_prompt) VALUES (?, ?, ?, ?) RETURNING id",
-            (org_id, name, description, system_prompt),
+            """INSERT INTO assistants (org_id, name, description, system_prompt, answer_mode)
+               VALUES (?, ?, ?, ?, ?) RETURNING id""",
+            (org_id, name, description, system_prompt, answer_mode),
         ).fetchone()["id"]
 
 
-def update_assistant(org_id: int, assistant_id: int, name: str, description: str, system_prompt: str) -> None:
+def update_assistant(org_id: int, assistant_id: int, name: str, description: str, system_prompt: str,
+                     answer_mode: str = "sources") -> None:
     with connect() as c:
         c.execute(
-            "UPDATE assistants SET name = ?, description = ?, system_prompt = ? WHERE org_id = ? AND id = ?",
-            (name, description, system_prompt, org_id, assistant_id),
+            """UPDATE assistants SET name = ?, description = ?, system_prompt = ?, answer_mode = ?
+               WHERE org_id = ? AND id = ?""",
+            (name, description, system_prompt, answer_mode, org_id, assistant_id),
         )
 
 

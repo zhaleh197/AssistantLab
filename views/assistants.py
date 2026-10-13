@@ -8,6 +8,20 @@ org_id = user["org_id"]
 
 PROMPT_HELP = "نقش، لحن و حوزه‌ی کاری دستیار. مثال: «تو کارشناس پشتیبانی شرکت X هستی؛ کوتاه و صمیمی پاسخ بده.»"
 
+MODE_LABELS = {"sources": "فقط از منابع", "sources_and_general": "منابع + دانش عمومی"}
+MODE_CAPTIONS = [
+    "فقط از اسناد سازمان و با ارجاع پاسخ می‌دهد؛ اگر جواب در منابع نباشد، همین را می‌گوید. امن‌ترین حالت.",
+    "اول از منابع پاسخ می‌دهد؛ برای پرسش‌های عمومی از دانش خودش هم جواب می‌دهد و صریح می‌گوید که از منابع سازمان نیست. "
+    "درباره‌ی خود سازمان هرگز حدس نمی‌زند.",
+]
+
+
+def answer_mode_input(current: str = "sources", key: str | None = None) -> str:
+    return st.radio(
+        "نحوه‌ی پاسخ‌دهی", list(MODE_LABELS), index=list(MODE_LABELS).index(current),
+        format_func=MODE_LABELS.get, captions=MODE_CAPTIONS, key=key,
+    )
+
 st.title("دستیارها")
 
 with st.expander("➕ ساخت دستیار جدید", expanded=not db.list_assistants(org_id)):
@@ -15,12 +29,13 @@ with st.expander("➕ ساخت دستیار جدید", expanded=not db.list_assi
         name = st.text_input("نام دستیار", placeholder="مثلاً: دستیار منابع انسانی")
         description = st.text_input("توضیح کوتاه", placeholder="این دستیار به چه سؤال‌هایی پاسخ می‌دهد؟")
         system_prompt = st.text_area("نقش و لحن", help=PROMPT_HELP, height=120)
+        answer_mode = answer_mode_input(key="new_answer_mode")
         if st.form_submit_button("ساخت دستیار", type="primary"):
             if not name.strip():
                 st.error("نام دستیار را وارد کنید.")
             else:
                 st.session_state["selected_assistant"] = db.create_assistant(
-                    org_id, name.strip(), description.strip(), system_prompt.strip()
+                    org_id, name.strip(), description.strip(), system_prompt.strip(), answer_mode
                 )
                 st.success("دستیار ساخته شد. حالا از صفحه‌ی «منابع» اسناد آن را اضافه کنید.")
                 st.rerun()
@@ -34,16 +49,19 @@ for a in assistants:
         st.subheader(a["name"])
         if a["description"]:
             st.write(a["description"])
-        st.caption(f"{a['n_sources']} منبع · {a['n_chunks']} تکه‌ی متن")
+        st.caption(f"{a['n_sources']} منبع · {a['n_chunks']} تکه‌ی متن · {MODE_LABELS[a['answer_mode']]}")
 
         with st.expander("ویرایش"):
             with st.form(f"edit_{a['id']}"):
                 name = st.text_input("نام دستیار", a["name"])
                 description = st.text_input("توضیح کوتاه", a["description"])
                 system_prompt = st.text_area("نقش و لحن", a["system_prompt"], help=PROMPT_HELP, height=120)
+                answer_mode = answer_mode_input(a["answer_mode"], key=f"answer_mode_{a['id']}")
                 if st.form_submit_button("ذخیره"):
                     if name.strip():
-                        db.update_assistant(org_id, a["id"], name.strip(), description.strip(), system_prompt.strip())
+                        db.update_assistant(
+                            org_id, a["id"], name.strip(), description.strip(), system_prompt.strip(), answer_mode
+                        )
                         st.rerun()
                     st.error("نام دستیار نمی‌تواند خالی باشد.")
 

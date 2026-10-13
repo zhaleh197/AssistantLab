@@ -223,6 +223,7 @@ def test_deleting_source_updates_search_index():
 
 def test_cited_numbers():
     assert rag.cited_numbers("الف [2] ب [۱][2] ج [9]", n_hits=3) == [2, 1]
+    assert rag.cited_numbers("رتبه سوم【1】 و【3】", n_hits=3) == [1, 3]
 
 
 def test_build_messages_contains_sources_and_persona():
@@ -436,3 +437,42 @@ def test_add_chunks_is_idempotent_for_retries():
     db.add_chunks(org["org_id"], aid, sid, items, fake_embed([t for _, t in items]))
     db.add_chunks(org["org_id"], aid, sid, items, fake_embed([t for _, t in items]))  # تلاش دوباره
     assert db.count_org_chunks(org["org_id"]) == 2
+
+
+# ---------- حالت پاسخ‌دهی ----------
+
+def test_answer_mode_defaults_to_sources_and_can_be_changed():
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "a", "", "")
+    assert db.get_assistant(org["org_id"], aid)["answer_mode"] == "sources"
+    db.update_assistant(org["org_id"], aid, "a", "", "", "sources_and_general")
+    assert db.get_assistant(org["org_id"], aid)["answer_mode"] == "sources_and_general"
+
+
+def test_old_sqlite_database_gets_answer_mode_column(tmp_path, monkeypatch, backend):
+    if backend != "sqlite":
+        pytest.skip("مهاجرت SQLite")
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(db.SQLITE_SCHEMA.replace(
+        "    answer_mode TEXT NOT NULL DEFAULT 'sources' CHECK (answer_mode IN ('sources', 'sources_and_general')),\n", ""
+    ))
+    old.execute("INSERT INTO organizations (name) VALUES ('o')")
+    old.execute("INSERT INTO assistants (org_id, name) VALUES (1, 'قدیمی')")
+    old.commit()
+    old.close()
+
+    monkeypatch.setattr(db, "DB_PATH", path)
+    db.init_db()
+    assert db.get_assistant(1, 1)["answer_mode"] == "sources"
+
+
+def test_rules_follow_answer_mode():
+    strict = rag.build_messages({"name": "x", "answer_mode": "sources"}, [], "q", [])[0]["content"]
+    general = rag.build_messages({"name": "x", "answer_mode": "sources_and_general"}, [], "q", [])[0]["content"]
+    assert "از دانش عمومی خودت چیزی اضافه نکن" in strict and rag.GENERAL_PREFIX not in strict
+    assert rag.GENERAL_PREFIX in general and "حدس نزن" in general
+    for rules in (strict, general):
+        assert "نام مدل زبانی یا شرکت سازنده‌ی آن را نگو" in rules
