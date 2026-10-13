@@ -1,5 +1,6 @@
 """اتصال به مدل‌ها از طریق API سازگار با OpenAI (Gemini، Groq، OpenRouter، ...)."""
 from collections.abc import Iterator
+from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
@@ -38,7 +39,7 @@ def embed(texts: list[str]) -> np.ndarray:
     client = embed_client()
     if len(texts) == 1:
         # بردار سؤال کاربر: کاربر منتظر است، پس تلاش مجدد کوتاه؛ برای افزودن منابع صبر بیشتر
-        client = client.with_options(max_retries=2, timeout=20)
+        client = client.with_options(max_retries=1, timeout=10)
     vectors: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH):
         batch = [t[:MAX_EMBED_CHARS] for t in texts[i:i + EMBED_BATCH]]
@@ -53,29 +54,60 @@ def embed(texts: list[str]) -> np.ndarray:
     return arr / np.where(norms == 0, 1, norms)
 
 
-def chat_models() -> list[str]:
-    models = [config.CHAT_MODEL]
-    if config.CHAT_FALLBACK_MODEL and config.CHAT_FALLBACK_MODEL != config.CHAT_MODEL:
-        models.append(config.CHAT_FALLBACK_MODEL)
-    return models
+@dataclass(frozen=True)
+class ChatTarget:
+    base_url: str
+    api_key: str
+    model: str
+
+    def extra_params(self) -> dict:
+        # مدل‌های جدید Gemini پیش از پاسخ «فکر» می‌کنند؛ برای پاسخ از روی منابع لازم نیست و چند ثانیه کندی دارد
+        if "generativelanguage.googleapis.com" in self.base_url and config.GEMINI_REASONING_EFFORT:
+            return {"reasoning_effort": config.GEMINI_REASONING_EFFORT}
+        return {}
+
+
+def chat_targets() -> list[ChatTarget]:
+    """مدل اصلی و (در صورت تنظیم) مدل جایگزین؛ جایگزین می‌تواند از سرویس دیگری با کلید خودش باشد."""
+    targets = [ChatTarget(config.CHAT_BASE_URL, config.CHAT_API_KEY, config.CHAT_MODEL)]
+    if config.CHAT_FALLBACK_MODEL:
+        fallback = ChatTarget(
+            config.CHAT_FALLBACK_BASE_URL or config.CHAT_BASE_URL,
+            config.CHAT_FALLBACK_API_KEY or config.CHAT_API_KEY,
+            config.CHAT_FALLBACK_MODEL,
+        )
+        if fallback != targets[0]:
+            targets.append(fallback)
+    return targets
 
 
 def stream_chat(messages: list[dict], temperature: float = 0.2) -> Iterator[str]:
-    """اگر مدل اصلی شلوغ یا بیش از سهمیه باشد، به‌جای تلاش‌های طولانی فوراً مدل جایگزین امتحان می‌شود."""
-    client = chat_client().with_options(max_retries=1, timeout=60)
+    """مدل‌های پلن رایگان گاهی شلوغ‌اند و تا یک دقیقه جواب نمی‌دهند. اگر مدل اصلی خطا بدهد یا در
+    CHAT_FIRST_TOKEN_TIMEOUT ثانیه شروع به پاسخ نکند، فوراً مدل جایگزین امتحان می‌شود."""
+    targets = chat_targets()
     last_error: Exception | None = None
-    for model in chat_models():
+    for i, target in enumerate(targets):
+        is_last = i == len(targets) - 1
+        # در جریان (stream)، مهلت خواندن یعنی حداکثر انتظار برای هر تکه‌ی پاسخ، از جمله اولین کلمه
+        client = _client(target.base_url, target.api_key).with_options(
+            max_retries=1 if is_last else 0,
+            timeout=config.CHAT_LAST_MODEL_TIMEOUT if is_last else config.CHAT_FIRST_TOKEN_TIMEOUT,
+        )
+        started = False
         try:
             stream = client.chat.completions.create(
-                model=model, messages=messages, temperature=temperature, stream=True,
+                model=target.model, messages=messages, temperature=temperature, stream=True,
+                **target.extra_params(),
             )
+            for event in stream:
+                if event.choices and event.choices[0].delta.content:
+                    started = True
+                    yield event.choices[0].delta.content
+            return
         except TRANSIENT_ERRORS as e:
+            if started:  # بخشی از پاسخ نمایش داده شده؛ شروع دوباره با مدل دیگر گیج‌کننده است
+                raise
             last_error = e
-            continue
-        for event in stream:
-            if event.choices and event.choices[0].delta.content:
-                yield event.choices[0].delta.content
-        return
     raise last_error
 
 

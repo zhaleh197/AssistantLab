@@ -51,9 +51,18 @@ GEMINI_OPENAI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 # مدل گفتگو (هر سرویس سازگار با OpenAI: Gemini، Groq، OpenRouter، ...)
 CHAT_BASE_URL = os.getenv("CHAT_BASE_URL", GEMINI_OPENAI_URL)
 CHAT_API_KEY = os.getenv("CHAT_API_KEY", "")
-# flash-lite در پلن رایگان سریع‌ترین و پایدارترین بود (~۱ ثانیه)؛ اگر شلوغ باشد مدل جایگزین امتحان می‌شود
-CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-3.5-flash-lite")
-CHAT_FALLBACK_MODEL = os.getenv("CHAT_FALLBACK_MODEL", "gemini-3.5-flash")
+# flash با «فکر کردن» حداقلی حدود ۵ ثانیه و پایدارتر است؛ flash-lite وقتی شلوغ نباشد ~۱ ثانیه
+# ولی در پلن رایگان مدام شلوغ (503) می‌شود، پس جایگزین است
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-3.5-flash")
+# مدل جایگزین؛ می‌تواند از سرویس دیگری باشد (مثلاً Groq) با آدرس و کلید جداگانه
+CHAT_FALLBACK_MODEL = os.getenv("CHAT_FALLBACK_MODEL", "gemini-3.5-flash-lite")
+CHAT_FALLBACK_BASE_URL = os.getenv("CHAT_FALLBACK_BASE_URL", "")
+CHAT_FALLBACK_API_KEY = os.getenv("CHAT_FALLBACK_API_KEY", "")
+# میزان «فکر کردن» مدل‌های Gemini قبل از پاسخ (minimal/low/medium/high)؛ خالی = پیش‌فرض مدل
+GEMINI_REASONING_EFFORT = os.getenv("GEMINI_REASONING_EFFORT", "minimal")
+# اگر مدل اصلی در این چند ثانیه شروع به پاسخ نکند، مدل جایگزین امتحان می‌شود
+CHAT_FIRST_TOKEN_TIMEOUT = float(os.getenv("CHAT_FIRST_TOKEN_TIMEOUT", 8))
+CHAT_LAST_MODEL_TIMEOUT = float(os.getenv("CHAT_LAST_MODEL_TIMEOUT", 30))
 
 # مدل Embedding (اگر کلید جدا داده نشود، از کلید گفتگو استفاده می‌شود)
 EMBED_BASE_URL = os.getenv("EMBED_BASE_URL", GEMINI_OPENAI_URL)

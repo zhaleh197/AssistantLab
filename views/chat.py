@@ -1,4 +1,5 @@
 import html
+import sys
 import time
 
 import streamlit as st
@@ -61,33 +62,47 @@ if question:
 
     with st.chat_message("assistant"):
         try:
-            with st.spinner("در حال جستجو در منابع..."):
-                hits = retrieval.search(org_id, assistant["id"], rag.retrieval_query(history, question), config.TOP_K)
+            if rag.is_small_talk(question):
+                hits = []  # احوال‌پرسی و تشکر جستجو نمی‌خواهد
+            else:
+                with st.spinner("در حال جستجو در منابع..."):
+                    hits = retrieval.search(
+                        org_id, assistant["id"], rag.retrieval_query(history, question), config.TOP_K
+                    )
             messages = rag.build_messages(assistant, history, question, hits)
             started = time.perf_counter()
+            waiting = st.empty()
+            waiting.caption("در حال نوشتن پاسخ...")
 
             def timed_stream():
                 first = True
                 for piece in llm.stream_chat(messages):
                     if first:
+                        waiting.empty()
                         perf.log("llm first token", (time.perf_counter() - started) * 1000)
                         first = False
                     yield piece
 
             answer = st.write_stream(timed_stream())
+            waiting.empty()
             perf.log("llm full answer", (time.perf_counter() - started) * 1000)
         except llm.MissingApiKey as e:
             st.error(str(e))
             st.stop()
         except NotFoundError:
-            st.error(
-                f"مدل «{config.CHAT_MODEL}» در دسترس نیست (احتمالاً بازنشسته شده). "
-                "مقدار CHAT_MODEL را در فایل .env عوض کنید و برنامه را دوباره اجرا کنید؛ "
-                "برای آزمایش مدل‌ها: python scripts/check_models.py"
-            )
+            print(f"chat model not found: {config.CHAT_MODEL}", file=sys.stderr)
+            st.error("مدل زبانی تنظیم‌شده در دسترس نیست؛ به مدیر سیستم اطلاع دهید.")
+            st.stop()
+        except llm.TRANSIENT_ERRORS:
+            st.warning("سرویس مدل زبانی الان شلوغ است؛ چند لحظه بعد دوباره بپرسید.")
             st.stop()
         except APIError as e:
-            st.error(f"خطا در ارتباط با مدل زبانی: {e}")
+            print(f"chat API error: {e}", file=sys.stderr)
+            st.error("خطا در ارتباط با مدل زبانی؛ دوباره امتحان کنید.")
+            st.stop()
+
+        if not answer or not answer.strip():
+            st.warning("پاسخی دریافت نشد؛ لطفاً دوباره بپرسید.")
             st.stop()
 
         cited = rag.cited_numbers(answer, len(hits))
