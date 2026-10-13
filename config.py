@@ -1,4 +1,4 @@
-"""تنظیمات برنامه؛ از فایل .env یا متغیرهای محیطی (Secrets در Hugging Face) خوانده می‌شود."""
+"""تنظیمات برنامه؛ از فایل .env، متغیرهای محیطی یا Secrets در Streamlit Cloud خوانده می‌شود."""
 import os
 from pathlib import Path
 
@@ -6,6 +6,23 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
+
+
+def _load_streamlit_secrets() -> None:
+    """Streamlit Cloud مقدارهای Secrets را فقط وقتی st.secrets خوانده شود در اختیار می‌گذارد؛
+    کلیدهای سطح اول به متغیرهای محیطی منتقل می‌شوند تا بقیه‌ی تنظیمات مثل .env کار کنند."""
+    try:
+        import streamlit as st
+
+        items = dict(st.secrets)
+    except Exception:  # بدون فایل secrets (اجرای محلی با .env)
+        return
+    for key, value in items.items():
+        if isinstance(value, (str, int, float, bool)):
+            os.environ.setdefault(key, str(value))
+
+
+_load_streamlit_secrets()
 
 
 def _fix_ssl_env() -> None:

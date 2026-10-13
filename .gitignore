@@ -8,3 +8,4 @@ data/
 .tmp/
 .claude/
 .agents/
+.streamlit/secrets.toml
