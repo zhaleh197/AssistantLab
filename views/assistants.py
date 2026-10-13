@@ -1,7 +1,10 @@
+import secrets
+from datetime import datetime, timezone
+
 import streamlit as st
 
 from core import db
-from core.ui import require_admin
+from core.ui import require_admin, share_link
 
 user = require_admin()
 org_id = user["org_id"]
@@ -49,7 +52,8 @@ for a in assistants:
         st.subheader(a["name"])
         if a["description"]:
             st.write(a["description"])
-        st.caption(f"{a['n_sources']} منبع · {a['n_chunks']} تکه‌ی متن · {MODE_LABELS[a['answer_mode']]}")
+        public_label = " · 🌐 لینک عمومی فعال" if a["public_token"] else ""
+        st.caption(f"{a['n_sources']} منبع · {a['n_chunks']} تکه‌ی متن · {MODE_LABELS[a['answer_mode']]}{public_label}")
 
         with st.expander("ویرایش"):
             with st.form(f"edit_{a['id']}"):
@@ -64,6 +68,38 @@ for a in assistants:
                         )
                         st.rerun()
                     st.error("نام دستیار نمی‌تواند خالی باشد.")
+
+        with st.expander("لینک عمومی"):
+            st.caption(
+                "با لینک عمومی هر کسی (مثلاً مشتریان سازمان) بدون ورود با این دستیار گفتگو می‌کند. "
+                "بازدیدکنندگان نام منابع را می‌بینند ولی متن داخلی اسناد به آن‌ها نمایش داده نمی‌شود."
+            )
+            if a["public_token"]:
+                st.code(share_link(a=a["public_token"]), language=None)
+                today = datetime.now(timezone.utc).date().isoformat()
+                used = db.public_usage_today(a["id"], today)  # درخواست‌های ردشده بعد از سقف هم شمرده می‌شوند
+                limit_now = a["public_daily_limit"]
+                full = " — سقف امروز پر شده است" if used >= limit_now else ""
+                st.caption(f"سؤال‌های امروز: {min(used, limit_now)} از {limit_now}{full}")
+                with st.form(f"public_limit_{a['id']}"):
+                    limit = st.number_input(
+                        "سقف سؤال در روز", min_value=1, max_value=10000, value=int(a["public_daily_limit"]),
+                        help="از سهمیه‌ی سرویس‌های مدل زبانی محافظت می‌کند؛ بعد از رسیدن به سقف تا فردا پاسخی داده نمی‌شود.",
+                    )
+                    if st.form_submit_button("ذخیره‌ی سقف"):
+                        db.set_public_link(org_id, a["id"], a["public_token"], int(limit))
+                        st.rerun()
+                cols = st.columns(2)
+                if cols[0].button("ساخت لینک جدید", key=f"regen_{a['id']}",
+                                  help="لینک فعلی دیگر کار نمی‌کند."):
+                    db.set_public_link(org_id, a["id"], secrets.token_urlsafe(16))
+                    st.rerun()
+                if cols[1].button("خاموش کردن لینک", key=f"disable_{a['id']}"):
+                    db.set_public_link(org_id, a["id"], None)
+                    st.rerun()
+            elif st.button("فعال کردن لینک عمومی", key=f"enable_{a['id']}", type="primary"):
+                db.set_public_link(org_id, a["id"], secrets.token_urlsafe(16))
+                st.rerun()
 
         with st.expander("حذف"):
             st.warning("با حذف دستیار، همه‌ی منابع آن هم حذف می‌شود.")

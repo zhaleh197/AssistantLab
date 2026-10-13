@@ -1,8 +1,11 @@
 """ابزارهای مشترک رابط کاربری Streamlit."""
 from datetime import datetime
+from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 import streamlit as st
+
+import config
 
 RTL_CSS = """
 <style>
@@ -24,6 +27,19 @@ code, pre, [data-testid="stCode"] { direction: ltr; text-align: left; }
               white-space: pre-wrap; }
 </style>
 """
+
+
+def app_base_url() -> str:
+    """آدرس پایه‌ی برنامه برای ساخت لینک‌های قابل اشتراک. در Streamlit Cloud برنامه زیر /~/+/
+    داخل iframe اجرا می‌شود ولی لینک باید به آدرس اصلی اشاره کند، پس فقط مبدأ (origin) برداشته می‌شود."""
+    if config.PUBLIC_BASE_URL:
+        return config.PUBLIC_BASE_URL
+    parts = urlsplit(st.context.url or "")
+    return f"{parts.scheme}://{parts.netloc}" if parts.netloc else ""
+
+
+def share_link(**params: str) -> str:
+    return f"{app_base_url()}/?{urlencode(params)}"
 
 
 def format_time(value) -> str:

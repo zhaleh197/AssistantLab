@@ -98,6 +98,11 @@ HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", 6))
 
 # سهمیه‌ی هر سازمان
 MAX_CHUNKS_PER_ORG = int(os.getenv("MAX_CHUNKS_PER_ORG", 5000))
+# لینک عمومی دستیارها: حداکثر سؤال در یک گفتگوی بازدیدکننده (سقف روزانه را مدیر هر دستیار تعیین می‌کند)
+PUBLIC_SESSION_LIMIT = int(os.getenv("PUBLIC_SESSION_LIMIT", 30))
+# آدرس پایه‌ی برنامه برای ساخت لینک‌ها؛ خالی = از آدرس فعلی مرورگر
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+
 MAX_URL_BYTES = 20 * 1024 * 1024
 # اگر متن HTML خام کمتر از این باشد، صفحه احتمالاً با جاوااسکریپت ساخته می‌شود و با مرورگر رندر می‌شود
 MIN_STATIC_TEXT_CHARS = int(os.getenv("MIN_STATIC_TEXT_CHARS", 300))

@@ -88,6 +88,12 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
     kind TEXT NOT NULL CHECK (kind IN ('ticket', 'session')),
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS public_usage (
+    assistant_id INTEGER NOT NULL REFERENCES assistants(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    n INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (assistant_id, day)
+);
 CREATE INDEX IF NOT EXISTS ix_chunks_assistant ON chunks(org_id, assistant_id);
 CREATE INDEX IF NOT EXISTS ix_sources_assistant ON sources(org_id, assistant_id);
 """
@@ -160,11 +166,29 @@ CREATE INDEX IF NOT EXISTS ix_sources_assistant ON sources(org_id, assistant_id)
 CREATE INDEX IF NOT EXISTS ix_assistants_org ON assistants(org_id);
 CREATE INDEX IF NOT EXISTS ix_users_org ON users(org_id);
 CREATE INDEX IF NOT EXISTS ix_auth_tokens_user ON auth_tokens(user_id);
-
--- مهاجرت: ستون‌هایی که بعد از ساخت اولیه‌ی جدول‌ها اضافه شده‌اند
-ALTER TABLE assistants ADD COLUMN IF NOT EXISTS answer_mode TEXT NOT NULL DEFAULT 'sources'
-    CHECK (answer_mode IN ('sources', 'sources_and_general'));
+CREATE TABLE IF NOT EXISTS public_usage (
+    assistant_id BIGINT NOT NULL REFERENCES assistants(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    n INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (assistant_id, day)
+);
 """
+
+# مهاجرت: ستون‌هایی که بعد از ساخت اولیه‌ی جدول‌ها اضافه شده‌اند (برای هر دو دیتابیس)
+COLUMN_MIGRATIONS = [
+    ("assistants", "answer_mode",
+     "TEXT NOT NULL DEFAULT 'sources' CHECK (answer_mode IN ('sources', 'sources_and_general'))"),
+    # آدرس اختصاصی سازمان (?org=slug)
+    ("organizations", "slug", "TEXT"),
+    # لینک عمومی دستیار (?a=token)؛ NULL یعنی خاموش
+    ("assistants", "public_token", "TEXT"),
+    ("assistants", "public_daily_limit", "INTEGER NOT NULL DEFAULT 200"),
+]
+INDEX_MIGRATIONS = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_organizations_slug ON organizations(slug) WHERE slug IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_assistants_public_token ON assistants(public_token) "
+    "WHERE public_token IS NOT NULL",
+]
 
 
 # ---------- اتصال ----------
@@ -210,6 +234,11 @@ def _create_pg_schema() -> None:
     _validate_pg_config()
     with psycopg.connect(DATABASE_URL, autocommit=True, prepare_threshold=None) as conn:
         conn.execute(PG_SCHEMA_SQL.format(schema=PG_SCHEMA, dims=EMBED_DIMS))
+        for table, column, ddl in COLUMN_MIGRATIONS:
+            conn.execute(f"ALTER TABLE {PG_SCHEMA}.{table} ADD COLUMN IF NOT EXISTS {column} {ddl}")
+        conn.execute(f"SET search_path TO {PG_SCHEMA}, extensions, public")
+        for sql in INDEX_MIGRATIONS:
+            conn.execute(sql)
         row = conn.execute(
             "SELECT atttypmod FROM pg_attribute WHERE attrelid = %s::regclass AND attname = 'embedding'",
             (f"{PG_SCHEMA}.chunks",),
@@ -310,12 +339,12 @@ def init_db() -> None:
         else:
             with connect() as c:
                 c.raw.executescript(SQLITE_SCHEMA)
-                columns = {r["name"] for r in c.execute("PRAGMA table_info(assistants)")}
-                if "answer_mode" not in columns:
-                    c.execute(
-                        "ALTER TABLE assistants ADD COLUMN answer_mode TEXT NOT NULL DEFAULT 'sources' "
-                        "CHECK (answer_mode IN ('sources', 'sources_and_general'))"
-                    )
+                for table, column, ddl in COLUMN_MIGRATIONS:
+                    existing = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+                    if column not in existing:
+                        c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                for sql in INDEX_MIGRATIONS:
+                    c.execute(sql)
         _initialized.add(key)
 
 
@@ -342,10 +371,15 @@ def _is_unique_violation(e: Exception) -> bool:
 
 # ---------- سازمان و کاربر ----------
 
-def create_org_with_admin(org_name: str, username: str, display_name: str, password_hash: str) -> dict:
+def create_org_with_admin(org_name: str, username: str, display_name: str, password_hash: str,
+                          slug: str | None = None) -> dict:
+    if slug and get_org_by_slug(slug):
+        raise DuplicateError("این آدرس سازمان قبلاً استفاده شده است.")
     try:
         with connect(transaction=True) as c:
-            org_id = c.execute("INSERT INTO organizations (name) VALUES (?) RETURNING id", (org_name,)).fetchone()["id"]
+            org_id = c.execute(
+                "INSERT INTO organizations (name, slug) VALUES (?, ?) RETURNING id", (org_name, slug or None)
+            ).fetchone()["id"]
             c.execute(
                 "INSERT INTO users (org_id, username, display_name, password_hash, role) VALUES (?, ?, ?, ?, 'admin')",
                 (org_id, username, display_name, password_hash),
@@ -355,6 +389,28 @@ def create_org_with_admin(org_name: str, username: str, display_name: str, passw
             raise DuplicateError("این نام کاربری قبلاً ثبت شده است.") from e
         raise
     return get_user_by_username(username)
+
+
+def get_org_by_slug(slug: str) -> dict | None:
+    with connect() as c:
+        row = c.execute("SELECT id, name, slug FROM organizations WHERE slug = ?", (slug,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_org(org_id: int) -> dict | None:
+    with connect() as c:
+        row = c.execute("SELECT id, name, slug FROM organizations WHERE id = ?", (org_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def set_org_slug(org_id: int, slug: str) -> None:
+    try:
+        with connect() as c:
+            c.execute("UPDATE organizations SET slug = ? WHERE id = ?", (slug, org_id))
+    except Exception as e:
+        if _is_unique_violation(e):
+            raise DuplicateError("این آدرس سازمان قبلاً استفاده شده است.") from e
+        raise
 
 
 def get_user_by_username(username: str) -> dict | None:
@@ -436,6 +492,49 @@ def update_assistant(org_id: int, assistant_id: int, name: str, description: str
                WHERE org_id = ? AND id = ?""",
             (name, description, system_prompt, answer_mode, org_id, assistant_id),
         )
+
+
+def set_public_link(org_id: int, assistant_id: int, token: str | None, daily_limit: int | None = None) -> None:
+    """token=None لینک عمومی را خاموش می‌کند؛ توکن تازه لینک قبلی را باطل می‌کند."""
+    with connect() as c:
+        if daily_limit is None:
+            c.execute("UPDATE assistants SET public_token = ? WHERE org_id = ? AND id = ?",
+                      (token, org_id, assistant_id))
+        else:
+            c.execute("UPDATE assistants SET public_token = ?, public_daily_limit = ? WHERE org_id = ? AND id = ?",
+                      (token, daily_limit, org_id, assistant_id))
+
+
+def get_public_assistant(token: str) -> dict | None:
+    """دستیار متعلق به یک لینک عمومی فعال (با نام سازمان)."""
+    if not token:
+        return None
+    with connect() as c:
+        row = c.execute(
+            """SELECT a.*, o.name AS org_name,
+                      (SELECT COUNT(*) FROM chunks ch WHERE ch.assistant_id = a.id) AS n_chunks
+               FROM assistants a JOIN organizations o ON o.id = a.org_id
+               WHERE a.public_token = ?""",
+            (token,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def count_public_question(assistant_id: int, day: str) -> int:
+    """یک سؤال عمومی امروز را ثبت می‌کند و تعداد کل سؤال‌های امروز را برمی‌گرداند (اتمی)."""
+    with connect() as c:
+        return c.execute(
+            """INSERT INTO public_usage (assistant_id, day, n) VALUES (?, ?, 1)
+               ON CONFLICT (assistant_id, day) DO UPDATE SET n = public_usage.n + 1
+               RETURNING n""",
+            (assistant_id, day),
+        ).fetchone()["n"]
+
+
+def public_usage_today(assistant_id: int, day: str) -> int:
+    with connect() as c:
+        row = c.execute("SELECT n FROM public_usage WHERE assistant_id = ? AND day = ?", (assistant_id, day)).fetchone()
+    return row["n"] if row else 0
 
 
 def delete_assistant(org_id: int, assistant_id: int) -> None:

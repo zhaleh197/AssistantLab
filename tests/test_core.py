@@ -466,7 +466,10 @@ def test_old_sqlite_database_gets_answer_mode_column(tmp_path, monkeypatch, back
 
     monkeypatch.setattr(db, "DB_PATH", path)
     db.init_db()
-    assert db.get_assistant(1, 1)["answer_mode"] == "sources"
+    migrated = db.get_assistant(1, 1)
+    assert migrated["answer_mode"] == "sources"
+    assert migrated["public_token"] is None and migrated["public_daily_limit"] == 200
+    assert db.get_org(1)["slug"] is None
 
 
 def test_rules_follow_answer_mode():
@@ -476,3 +479,61 @@ def test_rules_follow_answer_mode():
     assert rag.GENERAL_PREFIX in general and "حدس نزن" in general
     for rules in (strict, general):
         assert "نام مدل زبانی یا شرکت سازنده‌ی آن را نگو" in rules
+
+
+
+# ---------- آدرس سازمان ----------
+
+def test_org_slug_is_unique_and_resolvable():
+    a = db.create_org_with_admin("اکام", "admin_a", "A", auth.hash_password("password123"), "akam")
+    assert db.get_org_by_slug("akam")["id"] == a["org_id"]
+    with pytest.raises(db.DuplicateError):
+        db.create_org_with_admin("دیگر", "admin_b", "B", auth.hash_password("password123"), "akam")
+    b = make_org("بی", "admin_c")                     # سازمان بدون آدرس (ثبت‌شده‌ی قدیمی)
+    with pytest.raises(db.DuplicateError):
+        db.set_org_slug(b["org_id"], "akam")
+    db.set_org_slug(b["org_id"], "bee")
+    assert db.get_org_by_slug("bee")["id"] == b["org_id"] and db.get_org_by_slug("nope") is None
+
+
+def test_validate_slug():
+    assert auth.validate_slug("akam") is None and auth.validate_slug("my-org-2") is None
+    for bad in ("ak", "Akam", "-akam", "akam-", "اکام", "a b c", "x" * 31):
+        assert auth.validate_slug(bad)
+
+
+# ---------- لینک عمومی ----------
+
+def test_public_link_enable_regenerate_disable():
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "عمومی", "", "")
+    assert db.get_public_assistant("anything") is None and db.get_public_assistant("") is None
+
+    db.set_public_link(org["org_id"], aid, "token-1", 50)
+    found = db.get_public_assistant("token-1")
+    assert found["id"] == aid and found["org_name"] == "org" and found["public_daily_limit"] == 50
+
+    db.set_public_link(org["org_id"], aid, "token-2")         # لینک جدید، لینک قبلی باطل
+    assert db.get_public_assistant("token-1") is None and db.get_public_assistant("token-2")["id"] == aid
+    assert db.get_public_assistant("token-2")["public_daily_limit"] == 50
+
+    db.set_public_link(org["org_id"], aid, None)              # خاموش
+    assert db.get_public_assistant("token-2") is None
+
+
+def test_public_link_of_another_org_cannot_be_changed():
+    a = make_org("A", "admin_a")
+    b = make_org("B", "admin_b")
+    aid = db.create_assistant(a["org_id"], "x", "", "")
+    db.set_public_link(b["org_id"], aid, "hijack")
+    assert db.get_public_assistant("hijack") is None
+
+
+def test_public_usage_counts_per_day_and_is_removed_with_assistant():
+    org = make_org()
+    aid = db.create_assistant(org["org_id"], "x", "", "")
+    assert [db.count_public_question(aid, "2026-10-14") for _ in range(3)] == [1, 2, 3]
+    assert db.count_public_question(aid, "2026-10-15") == 1
+    assert db.public_usage_today(aid, "2026-10-14") == 3 and db.public_usage_today(aid, "2026-01-01") == 0
+    db.delete_assistant(org["org_id"], aid)
+    assert db.public_usage_today(aid, "2026-10-14") == 0

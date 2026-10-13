@@ -1,7 +1,7 @@
 import streamlit as st
 
 from core import auth, db
-from core.ui import require_admin
+from core.ui import require_admin, share_link
 
 user = require_admin()
 org_id = user["org_id"]
@@ -9,6 +9,32 @@ org_id = user["org_id"]
 ROLE_LABELS = {"admin": "مدیر", "member": "عضو"}
 
 st.title("اعضای سازمان")
+
+org = db.get_org(org_id)
+with st.container(border=True):
+    st.subheader("آدرس ورود سازمان")
+    if org["slug"]:
+        st.caption("این آدرس را به اعضای سازمان بدهید؛ صفحه‌ی ورود با نام سازمان شما باز می‌شود "
+                   "و فقط اعضای همین سازمان می‌توانند وارد شوند.")
+        st.code(share_link(org=org["slug"]), language=None)
+    else:
+        st.caption("هنوز آدرسی برای سازمان تعیین نکرده‌اید.")
+    with st.form("org_slug"):
+        slug = st.text_input("آدرس سازمان (انگلیسی)", value=org["slug"] or "", placeholder="مثلاً akam")
+        if org["slug"]:
+            st.caption("با تغییر آدرس، آدرس قبلی دیگر کار نمی‌کند.")
+        if st.form_submit_button("ذخیره‌ی آدرس"):
+            slug = slug.strip().lower()
+            error = auth.validate_slug(slug)
+            if error:
+                st.error(error)
+            elif slug != org["slug"]:
+                try:
+                    db.set_org_slug(org_id, slug)
+                    st.rerun()
+                except db.DuplicateError as e:
+                    st.error(str(e))
+
 st.caption("«عضو» فقط می‌تواند با دستیارها گفتگو کند؛ «مدیر» دستیار و منابع را هم مدیریت می‌کند.")
 
 with st.expander("➕ افزودن عضو"):

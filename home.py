@@ -1,11 +1,12 @@
 """رابط کاربری اصلی (از طریق app.py اجرا می‌شود: streamlit run app.py)"""
+import sys
 import time
 
 import streamlit as st
 
 import config
 from core import auth, browser_store, db, perf, sessions
-from core.ui import apply_style
+from core.ui import apply_style, share_link
 
 _run_started = time.perf_counter()
 
@@ -14,12 +15,29 @@ apply_style()
 try:
     with perf.timed("init_db"):
         db.init_db()
-except Exception as e:  # تنظیمات اشتباه DATABASE_URL یا قطع اتصال
-    st.error(f"اتصال به دیتابیس برقرار نشد: {e}")
+except Exception as e:  # تنظیمات اشتباه DATABASE_URL یا قطع اتصال؛ جزئیات فقط در لاگ سرور
+    print(f"database init failed: {e}", file=sys.stderr)
+    st.error("اتصال به دیتابیس برقرار نشد؛ چند لحظه بعد صفحه را دوباره باز کنید.")
     st.stop()
 
-# توکن ورود در مرورگر نگه داشته می‌شود (core/browser_store.py)؛ در اولین اجرای هر نشست
-# مرورگر هنوز آن را گزارش نکرده و گزارشش خودش یک اجرای دوباره می‌سازد
+# ---------- لینک عمومی دستیار (?a=...): گفتگو بدون ورود ----------
+public_token = st.query_params.get("a")
+if public_token:
+    public_page = st.Page("views/public_chat.py", title="گفتگو", icon=":material/chat:", default=True)
+    nav = st.navigation([public_page], position="hidden")
+    public_assistant = db.get_public_assistant(public_token)
+    if not public_assistant:
+        st.title("🤖 AssistantLab")
+        st.error("این لینک معتبر نیست یا غیرفعال شده است.")
+        st.stop()
+    st.session_state["public_assistant"] = public_assistant
+    nav.run()
+    st.stop()
+
+# ---------- آدرس اختصاصی سازمان (?org=slug) ----------
+org_slug = (st.query_params.get("org") or "").strip().lower()
+org_page = db.get_org_by_slug(org_slug) if org_slug else None
+
 PAGES = {
     "chat": st.Page("views/chat.py", title="گفتگو", icon=":material/chat:", default=True),
     "assistants": st.Page("views/assistants.py", title="دستیارها", icon=":material/smart_toy:"),
@@ -27,6 +45,8 @@ PAGES = {
     "team": st.Page("views/team.py", title="اعضای سازمان", icon=":material/group:"),
 }
 
+# توکن ورود در مرورگر نگه داشته می‌شود (core/browser_store.py)؛ در اولین اجرای هر نشست
+# مرورگر هنوز آن را گزارش نکرده و گزارشش خودش یک اجرای دوباره می‌سازد
 stored_token = browser_store.sync()
 if stored_token is None:
     # همه‌ی صفحه‌ها (پنهان) ثبت می‌شوند تا آدرس صفحه‌ای که کاربر مستقیم باز کرده حفظ شود
@@ -65,53 +85,72 @@ def current_session_user(token: str) -> dict | None:
     return user
 
 
-def login_screen() -> None:
-    st.title("🤖 AssistantLab")
-    st.caption("دستیار هوشمند سازمان خود را بر پایه‌ی اسناد خودتان بسازید.")
+def login_form(org: dict | None) -> None:
+    with st.form("login"):
+        username = st.text_input("نام کاربری")
+        password = st.text_input("رمز عبور", type="password")
+        if st.form_submit_button("ورود", type="primary"):
+            try:
+                user = db.get_user_by_username(username.strip())
+                # در آدرس اختصاصی یک سازمان، فقط اعضای همان سازمان وارد می‌شوند
+                belongs = user and (org is None or user["org_id"] == org["id"])
+                if belongs and auth.verify_password(password, user["password_hash"]):
+                    sign_in(user)
+                st.error("نام کاربری یا رمز عبور اشتباه است.")
+            except Exception:  # قطع موقت اتصال؛ جزئیات فقط در لاگ سرور
+                st.error(DB_UNAVAILABLE)
 
-    tab_login, tab_register = st.tabs(["ورود", "ثبت سازمان جدید"])
 
-    with tab_login:
-        with st.form("login"):
-            username = st.text_input("نام کاربری")
-            password = st.text_input("رمز عبور", type="password")
-            if st.form_submit_button("ورود", type="primary"):
+def register_form() -> None:
+    st.write("با ثبت سازمان، شما مدیر آن می‌شوید و می‌توانید دستیار بسازید و اعضا را اضافه کنید.")
+    with st.form("register"):
+        org_name = st.text_input("نام سازمان")
+        slug = st.text_input(
+            "آدرس سازمان (انگلیسی)", placeholder="مثلاً akam",
+            help="اعضای سازمان از آدرس اختصاصی ‎…/?org=akam وارد می‌شوند.",
+        )
+        display_name = st.text_input("نام شما")
+        username = st.text_input("نام کاربری (انگلیسی)")
+        password = st.text_input("رمز عبور", type="password")
+        password2 = st.text_input("تکرار رمز عبور", type="password")
+        if st.form_submit_button("ثبت سازمان", type="primary"):
+            username, slug = username.strip(), slug.strip().lower()
+            error = auth.validate_new_account(username, password) or auth.validate_slug(slug)
+            if not org_name.strip() or not display_name.strip():
+                error = "نام سازمان و نام شما را وارد کنید."
+            elif password != password2:
+                error = "رمزهای عبور یکسان نیستند."
+            # تکراری بودن نام کاربری و آدرس سازمان هنگام ثبت (DuplicateError) بررسی می‌شود
+            if error:
+                st.error(error)
+            else:
                 try:
-                    user = db.get_user_by_username(username.strip())
-                    if user and auth.verify_password(password, user["password_hash"]):
-                        sign_in(user)
-                    st.error("نام کاربری یا رمز عبور اشتباه است.")
-                except Exception:  # قطع موقت اتصال؛ جزئیات فقط در لاگ سرور
+                    user = db.create_org_with_admin(
+                        org_name.strip(), username, display_name.strip(), auth.hash_password(password), slug
+                    )
+                    sign_in(user)
+                except db.DuplicateError as e:
+                    st.error(str(e))
+                except Exception:
                     st.error(DB_UNAVAILABLE)
 
+
+def login_screen() -> None:
+    if org_page:
+        st.title(f"🤖 {org_page['name']}")
+        st.caption("ورود به دستیارهای هوشمند سازمان")
+        login_form(org_page)
+        return
+
+    st.title("🤖 AssistantLab")
+    st.caption("دستیار هوشمند سازمان خود را بر پایه‌ی اسناد خودتان بسازید.")
+    if org_slug:
+        st.warning("سازمانی با این آدرس پیدا نشد.")  # متن آدرس نمایش داده نمی‌شود (ورودی کاربر است)
+    tab_login, tab_register = st.tabs(["ورود", "ثبت سازمان جدید"])
+    with tab_login:
+        login_form(None)
     with tab_register:
-        st.write("با ثبت سازمان، شما مدیر آن می‌شوید و می‌توانید دستیار بسازید و اعضا را اضافه کنید.")
-        with st.form("register"):
-            org_name = st.text_input("نام سازمان")
-            display_name = st.text_input("نام شما")
-            username = st.text_input("نام کاربری (انگلیسی)")
-            password = st.text_input("رمز عبور", type="password")
-            password2 = st.text_input("تکرار رمز عبور", type="password")
-            if st.form_submit_button("ثبت سازمان", type="primary"):
-                username = username.strip()
-                error = auth.validate_new_account(username, password)
-                if not org_name.strip() or not display_name.strip():
-                    error = "نام سازمان و نام شما را وارد کنید."
-                elif password != password2:
-                    error = "رمزهای عبور یکسان نیستند."
-                # تکراری بودن نام کاربری هنگام ثبت (DuplicateError) بررسی می‌شود
-                if error:
-                    st.error(error)
-                else:
-                    try:
-                        user = db.create_org_with_admin(
-                            org_name.strip(), username, display_name.strip(), auth.hash_password(password)
-                        )
-                        sign_in(user)
-                    except db.DuplicateError as e:
-                        st.error(str(e))
-                    except Exception:
-                        st.error(DB_UNAVAILABLE)
+        register_form()
 
 
 with perf.timed("session user"):
