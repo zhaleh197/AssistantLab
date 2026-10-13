@@ -48,25 +48,37 @@ if (ROOT / ".playwright").is_dir():
 
 GEMINI_OPENAI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
-# مدل گفتگو (هر سرویس سازگار با OpenAI: Gemini، Groq، OpenRouter، ...)
-CHAT_BASE_URL = os.getenv("CHAT_BASE_URL", GEMINI_OPENAI_URL)
-CHAT_API_KEY = os.getenv("CHAT_API_KEY", "")
-# flash با «فکر کردن» حداقلی حدود ۵ ثانیه و پایدارتر است؛ flash-lite وقتی شلوغ نباشد ~۱ ثانیه
-# ولی در پلن رایگان مدام شلوغ (503) می‌شود، پس جایگزین است
-CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-3.5-flash")
-# مدل جایگزین؛ می‌تواند از سرویس دیگری باشد (مثلاً Groq) با آدرس و کلید جداگانه
-CHAT_FALLBACK_MODEL = os.getenv("CHAT_FALLBACK_MODEL", "gemini-3.5-flash-lite")
-CHAT_FALLBACK_BASE_URL = os.getenv("CHAT_FALLBACK_BASE_URL", "")
-CHAT_FALLBACK_API_KEY = os.getenv("CHAT_FALLBACK_API_KEY", "")
+# سرویس‌های مدل زبانی (همه سازگار با OpenAI)؛ کلید هر سرویس جداگانه تنظیم می‌شود
+PROVIDER_URLS = {
+    "gemini": GEMINI_OPENAI_URL,
+    "groq": "https://api.groq.com/openai/v1",
+    "openai": "https://api.openai.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+# CHAT_API_KEY نام قدیمی کلید Gemini است و هنوز پذیرفته می‌شود
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or os.getenv("CHAT_API_KEY", "")
+PROVIDER_KEYS = {
+    "gemini": GEMINI_API_KEY,
+    "groq": os.getenv("GROQ_API_KEY", ""),
+    "openai": os.getenv("OPENAI_API_KEY", ""),
+    "openrouter": os.getenv("OPENROUTER_API_KEY", ""),
+}
+
+# مدل‌های گفتگو به ترتیب اولویت («سرویس:مدل»)؛ اگر یکی خطا بدهد یا دیر شروع کند، بعدی امتحان می‌شود
+# و مدلی که کلید سرویسش تنظیم نشده نادیده گرفته می‌شود. در سنجش‌ها Groq زیر ۱ ثانیه جواب می‌داد و
+# Gemini رایگان ۵ ثانیه تا یک دقیقه (یا خطای 503)، پس Gemini آخرین پشتیبان است.
+CHAT_MODELS = os.getenv(
+    "CHAT_MODELS", "groq:qwen/qwen3.8-27b, groq:openai/gpt-oss-120b, gemini:gemini-3.5-flash"
+)
 # میزان «فکر کردن» مدل‌های Gemini قبل از پاسخ (minimal/low/medium/high)؛ خالی = پیش‌فرض مدل
 GEMINI_REASONING_EFFORT = os.getenv("GEMINI_REASONING_EFFORT", "minimal")
 # اگر مدل اصلی در این چند ثانیه شروع به پاسخ نکند، مدل جایگزین امتحان می‌شود
 CHAT_FIRST_TOKEN_TIMEOUT = float(os.getenv("CHAT_FIRST_TOKEN_TIMEOUT", 8))
 CHAT_LAST_MODEL_TIMEOUT = float(os.getenv("CHAT_LAST_MODEL_TIMEOUT", 30))
 
-# مدل Embedding (اگر کلید جدا داده نشود، از کلید گفتگو استفاده می‌شود)
+# مدل Embedding (پیش‌فرض Gemini با همان کلید Gemini)
 EMBED_BASE_URL = os.getenv("EMBED_BASE_URL", GEMINI_OPENAI_URL)
-EMBED_API_KEY = os.getenv("EMBED_API_KEY", "") or CHAT_API_KEY
+EMBED_API_KEY = os.getenv("EMBED_API_KEY", "") or GEMINI_API_KEY
 EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
 
 # ابعاد بردار Embedding (۷۶۸ یک‌چهارم حجم ۳۰۷۲ است). صفر = پیش‌فرض خود مدل.

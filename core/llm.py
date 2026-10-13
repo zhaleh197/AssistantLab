@@ -1,10 +1,13 @@
 """اتصال به مدل‌ها از طریق API سازگار با OpenAI (Gemini، Groq، OpenRouter، ...)."""
+import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
-from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI, RateLimitError
+from openai import (
+    APIConnectionError, APITimeoutError, InternalServerError, NotFoundError, OpenAI, RateLimitError,
+)
 
 import config
 
@@ -24,10 +27,6 @@ def _client(base_url: str, api_key: str) -> OpenAI:
     if not api_key:
         raise MissingApiKey("کلید API تنظیم نشده است. فایل .env را طبق README پر کنید.")
     return OpenAI(base_url=base_url, api_key=api_key, max_retries=5, timeout=120)
-
-
-def chat_client() -> OpenAI:
-    return _client(config.CHAT_BASE_URL, config.CHAT_API_KEY)
 
 
 def embed_client() -> OpenAI:
@@ -56,28 +55,41 @@ def embed(texts: list[str]) -> np.ndarray:
 
 @dataclass(frozen=True)
 class ChatTarget:
-    base_url: str
-    api_key: str
+    provider: str
     model: str
 
+    @property
+    def base_url(self) -> str:
+        return config.PROVIDER_URLS[self.provider]
+
+    @property
+    def api_key(self) -> str:
+        return config.PROVIDER_KEYS.get(self.provider, "")
+
     def extra_params(self) -> dict:
-        # مدل‌های جدید Gemini پیش از پاسخ «فکر» می‌کنند؛ برای پاسخ از روی منابع لازم نیست و چند ثانیه کندی دارد
-        if "generativelanguage.googleapis.com" in self.base_url and config.GEMINI_REASONING_EFFORT:
+        # مدل‌های «فکرکننده» پیش از پاسخ استدلال می‌کنند؛ برای پاسخ از روی منابع لازم نیست و کندی دارد
+        if self.provider == "gemini" and config.GEMINI_REASONING_EFFORT:
             return {"reasoning_effort": config.GEMINI_REASONING_EFFORT}
+        if self.model.startswith("openai/gpt-oss"):
+            return {"reasoning_effort": "low"}
         return {}
+
+    def __str__(self) -> str:
+        return f"{self.provider}:{self.model}"
 
 
 def chat_targets() -> list[ChatTarget]:
-    """مدل اصلی و (در صورت تنظیم) مدل جایگزین؛ جایگزین می‌تواند از سرویس دیگری با کلید خودش باشد."""
-    targets = [ChatTarget(config.CHAT_BASE_URL, config.CHAT_API_KEY, config.CHAT_MODEL)]
-    if config.CHAT_FALLBACK_MODEL:
-        fallback = ChatTarget(
-            config.CHAT_FALLBACK_BASE_URL or config.CHAT_BASE_URL,
-            config.CHAT_FALLBACK_API_KEY or config.CHAT_API_KEY,
-            config.CHAT_FALLBACK_MODEL,
-        )
-        if fallback != targets[0]:
-            targets.append(fallback)
+    """مدل‌های CHAT_MODELS به ترتیب؛ مدلی که سرویسش ناشناخته است یا کلیدش تنظیم نشده کنار گذاشته می‌شود."""
+    targets = []
+    for item in config.CHAT_MODELS.split(","):
+        provider, sep, model = item.strip().partition(":")
+        if not sep or not model or provider not in config.PROVIDER_URLS:
+            continue
+        target = ChatTarget(provider, model.strip())
+        if target.api_key and target not in targets:
+            targets.append(target)
+    if not targets:
+        raise MissingApiKey("هیچ مدل گفتگویی با کلید معتبر تنظیم نشده است (GROQ_API_KEY یا GEMINI_API_KEY).")
     return targets
 
 
@@ -104,12 +116,15 @@ def stream_chat(messages: list[dict], temperature: float = 0.2) -> Iterator[str]
                     started = True
                     yield event.choices[0].delta.content
             return
-        except TRANSIENT_ERRORS as e:
+        except (*TRANSIENT_ERRORS, NotFoundError) as e:
             if started:  # بخشی از پاسخ نمایش داده شده؛ شروع دوباره با مدل دیگر گیج‌کننده است
                 raise
+            if isinstance(e, NotFoundError):  # مدل بازنشسته یا اشتباه؛ مدل بعدی امتحان می‌شود
+                print(f"chat model not found, skipping: {target}", file=sys.stderr)
             last_error = e
     raise last_error
 
 
-def list_models() -> list[str]:
-    return sorted(m.id for m in chat_client().models.list())
+def list_models(provider: str) -> list[str]:
+    client = _client(config.PROVIDER_URLS[provider], config.PROVIDER_KEYS.get(provider, ""))
+    return sorted(m.id for m in client.models.list())

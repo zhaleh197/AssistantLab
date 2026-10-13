@@ -131,8 +131,8 @@ nav = st.navigation(pages)
 with st.sidebar:
     st.markdown(f"**{user['org_name']}**")
     st.caption(f"{user['display_name']} · {'مدیر' if user['role'] == 'admin' else 'عضو'}")
-    if not config.CHAT_API_KEY:
-        st.warning("کلید API تنظیم نشده است (فایل .env).")
+    if not any(config.PROVIDER_KEYS.values()):
+        st.warning("هیچ کلید مدل زبانی تنظیم نشده است (GROQ_API_KEY یا GEMINI_API_KEY).")
     if st.button("خروج", icon=":material/logout:"):
         sign_out(stored_token)
 

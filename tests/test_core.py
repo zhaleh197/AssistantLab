@@ -346,12 +346,12 @@ def test_rejects_transaction_pooler_url(monkeypatch):
         db._validate_pg_config()
 
 
-def _fake_chat(monkeypatch, behaviour):
-    """behaviour: model -> 'busy' (خطا قبل از شروع) | 'cut' (خطا وسط پاسخ) | متن پاسخ.
-    کلاینت‌های ساخته‌شده با (base_url, api_key) ثبت می‌شوند."""
+def _fake_chat(monkeypatch, behaviour, models, keys=None):
+    """behaviour: model -> 'busy' (خطا قبل از شروع) | 'gone' (مدل بازنشسته) | 'cut' (خطا وسط پاسخ) | متن پاسخ.
+    models: مقدار CHAT_MODELS. فراخوانی‌ها به‌صورت (base_url, api_key, model, reasoning_effort) ثبت می‌شوند."""
     import httpx2 as httpx
     from types import SimpleNamespace
-    from openai import APITimeoutError
+    from openai import APITimeoutError, NotFoundError
 
     calls = []
 
@@ -365,6 +365,8 @@ def _fake_chat(monkeypatch, behaviour):
             request = httpx.Request("POST", "https://x")
             if mode == "busy":
                 raise APITimeoutError(request=request)
+            if mode == "gone":
+                raise NotFoundError("gone", response=httpx.Response(404, request=request), body=None)
             if mode == "cut":
                 def gen():
                     yield chunk("نیمه")
@@ -377,36 +379,42 @@ def _fake_chat(monkeypatch, behaviour):
         return client
 
     monkeypatch.setattr(llm, "_client", make_client)
+    monkeypatch.setattr(llm.config, "CHAT_MODELS", models)
+    monkeypatch.setattr(llm.config, "PROVIDER_KEYS", keys or {"gemini": "gemini-key", "groq": "groq-key"})
+    monkeypatch.setattr(llm.config, "GEMINI_REASONING_EFFORT", "minimal")
     return calls
 
 
 def test_stream_chat_falls_back_when_primary_model_is_busy(monkeypatch):
-    calls = _fake_chat(monkeypatch, {"primary": "busy", "backup": "سلام"})
-    monkeypatch.setattr(llm.config, "CHAT_MODEL", "primary")
-    monkeypatch.setattr(llm.config, "CHAT_FALLBACK_MODEL", "backup")
+    calls = _fake_chat(monkeypatch, {"primary": "busy", "backup": "سلام"}, "groq:primary, groq:backup")
     assert "".join(llm.stream_chat([])) == "سلام"
     assert [c[2] for c in calls] == ["primary", "backup"]
 
 
-def test_fallback_can_use_another_provider_and_key(monkeypatch):
-    calls = _fake_chat(monkeypatch, {"gemini-x": "busy", "llama-y": "پاسخ"})
-    monkeypatch.setattr(llm.config, "CHAT_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-    monkeypatch.setattr(llm.config, "CHAT_API_KEY", "gemini-key")
-    monkeypatch.setattr(llm.config, "CHAT_MODEL", "gemini-x")
-    monkeypatch.setattr(llm.config, "CHAT_FALLBACK_BASE_URL", "https://api.groq.com/openai/v1")
-    monkeypatch.setattr(llm.config, "CHAT_FALLBACK_API_KEY", "groq-key")
-    monkeypatch.setattr(llm.config, "CHAT_FALLBACK_MODEL", "llama-y")
-    monkeypatch.setattr(llm.config, "GEMINI_REASONING_EFFORT", "minimal")
+def test_fallback_across_providers_uses_each_providers_key(monkeypatch):
+    calls = _fake_chat(monkeypatch, {"qwen-x": "busy", "gemini-y": "پاسخ"}, "groq:qwen-x, gemini:gemini-y")
     assert "".join(llm.stream_chat([])) == "پاسخ"
-    gemini, groq = calls
-    assert gemini[1] == "gemini-key" and gemini[3] == "minimal"   # فکر کردن حداقلی فقط برای Gemini
+    groq, gemini = calls
     assert groq[:2] == ("https://api.groq.com/openai/v1", "groq-key") and groq[3] is None
+    assert gemini[1] == "gemini-key" and gemini[3] == "minimal"   # فکر کردن حداقلی فقط برای Gemini
+
+
+def test_retired_model_is_skipped(monkeypatch):
+    calls = _fake_chat(monkeypatch, {"old": "gone", "new": "تازه"}, "groq:old, groq:new")
+    assert "".join(llm.stream_chat([])) == "تازه"
+    assert [c[2] for c in calls] == ["old", "new"]
+
+
+def test_models_without_key_or_unknown_provider_are_ignored(monkeypatch):
+    _fake_chat(monkeypatch, {}, "groq:a, nowhere:b, gemini:c, bad-entry", keys={"gemini": "k", "groq": ""})
+    assert [str(t) for t in llm.chat_targets()] == ["gemini:c"]
+    monkeypatch.setattr(llm.config, "PROVIDER_KEYS", {"gemini": "", "groq": ""})
+    with pytest.raises(llm.MissingApiKey):
+        llm.chat_targets()
 
 
 def test_error_mid_answer_is_not_retried_with_another_model(monkeypatch):
-    calls = _fake_chat(monkeypatch, {"primary": "cut", "backup": "کامل"})
-    monkeypatch.setattr(llm.config, "CHAT_MODEL", "primary")
-    monkeypatch.setattr(llm.config, "CHAT_FALLBACK_MODEL", "backup")
+    calls = _fake_chat(monkeypatch, {"primary": "cut", "backup": "کامل"}, "groq:primary, groq:backup")
     out = []
     with pytest.raises(llm.TRANSIENT_ERRORS):
         for piece in llm.stream_chat([]):

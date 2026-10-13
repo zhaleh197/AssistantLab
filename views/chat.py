@@ -90,7 +90,7 @@ if question:
             st.error(str(e))
             st.stop()
         except NotFoundError:
-            print(f"chat model not found: {config.CHAT_MODEL}", file=sys.stderr)
+            print(f"no chat model found among: {config.CHAT_MODELS}", file=sys.stderr)
             st.error("مدل زبانی تنظیم‌شده در دسترس نیست؛ به مدیر سیستم اطلاع دهید.")
             st.stop()
         except llm.TRANSIENT_ERRORS:
