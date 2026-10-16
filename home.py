@@ -6,7 +6,8 @@ import streamlit as st
 
 import config
 from core import auth, browser_store, db, perf, sessions
-from core.ui import apply_style, share_link
+from core.chat_ui import md_escape
+from core.ui import apply_style
 
 _run_started = time.perf_counter()
 
@@ -86,7 +87,7 @@ def current_session_user(token: str) -> dict | None:
 
 
 def login_form(org: dict | None) -> None:
-    with st.form("login"):
+    with st.form("login", border=False):
         username = st.text_input("نام کاربری")
         password = st.text_input("رمز عبور", type="password")
         if st.form_submit_button("ورود", type="primary"):
@@ -103,7 +104,7 @@ def login_form(org: dict | None) -> None:
 
 def register_form() -> None:
     st.write("با ثبت سازمان، شما مدیر آن می‌شوید و می‌توانید دستیار بسازید و اعضا را اضافه کنید.")
-    with st.form("register"):
+    with st.form("register", border=False):
         org_name = st.text_input("نام سازمان")
         slug = st.text_input(
             "آدرس سازمان (انگلیسی)", placeholder="مثلاً akam",
@@ -136,21 +137,27 @@ def register_form() -> None:
 
 
 def login_screen() -> None:
-    if org_page:
-        st.title(f"🤖 {org_page['name']}")
-        st.caption("ورود به دستیارهای هوشمند سازمان")
-        login_form(org_page)
-        return
-
-    st.title("🤖 AssistantLab")
-    st.caption("دستیار هوشمند سازمان خود را بر پایه‌ی اسناد خودتان بسازید.")
-    if org_slug:
-        st.warning("سازمانی با این آدرس پیدا نشد.")  # متن آدرس نمایش داده نمی‌شود (ورودی کاربر است)
-    tab_login, tab_register = st.tabs(["ورود", "ثبت سازمان جدید"])
-    with tab_login:
-        login_form(None)
-    with tab_register:
-        register_form()
+    st.set_page_config(layout="centered")
+    with st.container(horizontal_alignment="center", key="center_login"):
+        st.space("large")
+        if org_page:
+            st.title(md_escape(org_page["name"]), icon=":material/smart_toy:", text_alignment="center")
+            st.caption("ورود به دستیارهای هوشمند سازمان", text_alignment="center")
+        else:
+            st.title("AssistantLab", icon=":material/smart_toy:", text_alignment="center")
+            st.caption("دستیار هوشمند سازمان خود را بر پایه‌ی اسناد خودتان بسازید.", text_alignment="center")
+        if org_slug and not org_page:
+            # متن آدرس نمایش داده نمی‌شود (ورودی کاربر است)
+            st.warning("سازمانی با این آدرس پیدا نشد.", icon=":material/search_off:", width=460)
+        with st.container(border=True, width=460):
+            if org_page:
+                login_form(org_page)
+                return
+            tab_login, tab_register = st.tabs([":material/login: ورود", ":material/domain_add: ثبت سازمان جدید"])
+            with tab_login:
+                login_form(None)
+            with tab_register:
+                register_form()
 
 
 with perf.timed("session user"):
@@ -167,13 +174,17 @@ if user["role"] == "admin":
     pages += [PAGES["assistants"], PAGES["sources"], PAGES["team"]]
 nav = st.navigation(pages)
 
-with st.sidebar:
-    st.markdown(f"**{user['org_name']}**")
-    st.caption(f"{user['display_name']} · {'مدیر' if user['role'] == 'admin' else 'عضو'}")
-    if not any(config.PROVIDER_KEYS.values()):
-        st.warning("هیچ کلید مدل زبانی تنظیم نشده است (GROQ_API_KEY یا GEMINI_API_KEY).")
-    if st.button("خروج", icon=":material/logout:"):
-        sign_out(stored_token)
-
-nav.run()
+# ابزارهای هر صفحه (انتخاب دستیار، گفتگوی جدید، ...) بالای نوار کناری می‌آیند و اطلاعات کاربر پایین آن؛
+# در finally تا حتی اگر صفحه با st.stop متوقف شد، دکمه‌ی خروج همیشه باشد
+try:
+    nav.run()
+finally:
+    with st.sidebar:
+        st.space("small")
+        st.markdown(f":material/apartment: **{md_escape(user['org_name'])}**")
+        st.caption(f"{md_escape(user['display_name'])} · {'مدیر' if user['role'] == 'admin' else 'عضو'}")
+        if not any(config.PROVIDER_KEYS.values()):
+            st.warning("هیچ کلید مدل زبانی تنظیم نشده است (GROQ_API_KEY یا GEMINI_API_KEY).")
+        if st.button("خروج", icon=":material/logout:", type="tertiary"):
+            sign_out(stored_token)
 perf.log(f"== full rerun ({nav.title})", (time.perf_counter() - _run_started) * 1000)

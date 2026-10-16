@@ -183,6 +183,8 @@ COLUMN_MIGRATIONS = [
     # لینک عمومی دستیار (?a=token)؛ NULL یعنی خاموش
     ("assistants", "public_token", "TEXT"),
     ("assistants", "public_daily_limit", "INTEGER NOT NULL DEFAULT 200"),
+    # سؤال‌های پیشنهادی صفحه‌ی خوش‌آمد گفتگو (هر خط یک سؤال)
+    ("assistants", "starter_questions", "TEXT NOT NULL DEFAULT ''"),
 ]
 INDEX_MIGRATIONS = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_organizations_slug ON organizations(slug) WHERE slug IS NOT NULL",
@@ -475,22 +477,23 @@ ANSWER_MODES = ("sources", "sources_and_general")
 
 
 def create_assistant(org_id: int, name: str, description: str, system_prompt: str,
-                     answer_mode: str = "sources") -> int:
+                     answer_mode: str = "sources", starter_questions: str = "") -> int:
     with connect() as c:
         return c.execute(
-            """INSERT INTO assistants (org_id, name, description, system_prompt, answer_mode)
-               VALUES (?, ?, ?, ?, ?) RETURNING id""",
-            (org_id, name, description, system_prompt, answer_mode),
+            """INSERT INTO assistants (org_id, name, description, system_prompt, answer_mode, starter_questions)
+               VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
+            (org_id, name, description, system_prompt, answer_mode, starter_questions),
         ).fetchone()["id"]
 
 
 def update_assistant(org_id: int, assistant_id: int, name: str, description: str, system_prompt: str,
-                     answer_mode: str = "sources") -> None:
+                     answer_mode: str = "sources", starter_questions: str = "") -> None:
     with connect() as c:
         c.execute(
-            """UPDATE assistants SET name = ?, description = ?, system_prompt = ?, answer_mode = ?
+            """UPDATE assistants SET name = ?, description = ?, system_prompt = ?, answer_mode = ?,
+                      starter_questions = ?
                WHERE org_id = ? AND id = ?""",
-            (name, description, system_prompt, answer_mode, org_id, assistant_id),
+            (name, description, system_prompt, answer_mode, starter_questions, org_id, assistant_id),
         )
 
 

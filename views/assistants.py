@@ -19,26 +19,31 @@ MODE_CAPTIONS = [
 ]
 
 
+STARTERS_HELP = "در صفحه‌ی خوش‌آمد گفتگو به‌صورت دکمه نمایش داده می‌شوند؛ هر خط یک سؤال (حداکثر ۶)."
+
+
 def answer_mode_input(current: str = "sources", key: str | None = None) -> str:
     return st.radio(
         "نحوه‌ی پاسخ‌دهی", list(MODE_LABELS), index=list(MODE_LABELS).index(current),
         format_func=MODE_LABELS.get, captions=MODE_CAPTIONS, key=key,
     )
 
-st.title("دستیارها")
+st.title("دستیارها", icon=":material/smart_toy:")
 
-with st.expander("➕ ساخت دستیار جدید", expanded=not db.list_assistants(org_id)):
+with st.expander("ساخت دستیار جدید", expanded=not db.list_assistants(org_id), icon=":material/add_circle:"):
     with st.form("new_assistant", clear_on_submit=True):
         name = st.text_input("نام دستیار", placeholder="مثلاً: دستیار منابع انسانی")
         description = st.text_input("توضیح کوتاه", placeholder="این دستیار به چه سؤال‌هایی پاسخ می‌دهد؟")
         system_prompt = st.text_area("نقش و لحن", help=PROMPT_HELP, height=120)
+        starters = st.text_area("سؤال‌های پیشنهادی", help=STARTERS_HELP, height=100,
+                                placeholder="مثلاً:\nچه خدماتی ارائه می‌دهید؟\nساعت کاری شما چیست؟")
         answer_mode = answer_mode_input(key="new_answer_mode")
-        if st.form_submit_button("ساخت دستیار", type="primary"):
+        if st.form_submit_button("ساخت دستیار", type="primary", icon=":material/add:"):
             if not name.strip():
                 st.error("نام دستیار را وارد کنید.")
             else:
                 st.session_state["selected_assistant"] = db.create_assistant(
-                    org_id, name.strip(), description.strip(), system_prompt.strip(), answer_mode
+                    org_id, name.strip(), description.strip(), system_prompt.strip(), answer_mode, starters.strip()
                 )
                 st.success("دستیار ساخته شد. حالا از صفحه‌ی «منابع» اسناد آن را اضافه کنید.")
                 st.rerun()
@@ -49,27 +54,29 @@ if not assistants:
 
 for a in assistants:
     with st.container(border=True):
-        st.subheader(a["name"])
+        st.subheader(a["name"], icon=":material/smart_toy:")
         if a["description"]:
             st.write(a["description"])
-        public_label = " · 🌐 لینک عمومی فعال" if a["public_token"] else ""
+        public_label = " · :material/public: لینک عمومی فعال" if a["public_token"] else ""
         st.caption(f"{a['n_sources']} منبع · {a['n_chunks']} تکه‌ی متن · {MODE_LABELS[a['answer_mode']]}{public_label}")
 
-        with st.expander("ویرایش"):
+        with st.expander("ویرایش", icon=":material/edit:"):
             with st.form(f"edit_{a['id']}"):
                 name = st.text_input("نام دستیار", a["name"])
                 description = st.text_input("توضیح کوتاه", a["description"])
                 system_prompt = st.text_area("نقش و لحن", a["system_prompt"], help=PROMPT_HELP, height=120)
+                starters = st.text_area("سؤال‌های پیشنهادی", a["starter_questions"], help=STARTERS_HELP, height=100)
                 answer_mode = answer_mode_input(a["answer_mode"], key=f"answer_mode_{a['id']}")
-                if st.form_submit_button("ذخیره"):
+                if st.form_submit_button("ذخیره", icon=":material/save:"):
                     if name.strip():
                         db.update_assistant(
-                            org_id, a["id"], name.strip(), description.strip(), system_prompt.strip(), answer_mode
+                            org_id, a["id"], name.strip(), description.strip(), system_prompt.strip(), answer_mode,
+                            starters.strip(),
                         )
                         st.rerun()
                     st.error("نام دستیار نمی‌تواند خالی باشد.")
 
-        with st.expander("لینک عمومی"):
+        with st.expander("لینک عمومی", icon=":material/public:"):
             st.caption(
                 "با لینک عمومی هر کسی (مثلاً مشتریان سازمان) بدون ورود با این دستیار گفتگو می‌کند. "
                 "بازدیدکنندگان نام منابع را می‌بینند ولی متن داخلی اسناد به آن‌ها نمایش داده نمی‌شود."
@@ -101,7 +108,7 @@ for a in assistants:
                 db.set_public_link(org_id, a["id"], secrets.token_urlsafe(16))
                 st.rerun()
 
-        with st.expander("حذف"):
+        with st.expander("حذف", icon=":material/delete:"):
             st.warning("با حذف دستیار، همه‌ی منابع آن هم حذف می‌شود.")
             confirm = st.checkbox("مطمئنم", key=f"confirm_del_{a['id']}")
             if st.button("حذف دستیار", key=f"del_{a['id']}", disabled=not confirm):

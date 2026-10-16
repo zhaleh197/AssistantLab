@@ -3,15 +3,22 @@ import streamlit as st
 import config
 from core import crawler, db, loaders
 from core.ingest import ingest
+from core.chat_ui import md_escape
 from core.ui import format_time, pick_assistant, require_admin
 
 user = require_admin()
 org_id = user["org_id"]
 
-STATUS_LABELS = {"processing": "⏳ در حال پردازش", "ready": "✅ آماده", "error": "❌ خطا"}
+# وضعیت: (برچسب، رنگ، آیکون)
+STATUS_BADGES = {
+    "processing": ("در حال پردازش", "orange", ":material/hourglass_top:"),
+    "ready": ("آماده", "green", ":material/check_circle:"),
+    "error": ("خطا", "red", ":material/error:"),
+}
 KIND_LABELS = {"file": "فایل", "url": "لینک", "text": "متن"}
+KIND_ICONS = {"file": ":material/description:", "url": ":material/link:", "text": ":material/notes:"}
 
-st.title("منابع دانش")
+st.title("منابع دانش", icon=":material/library_books:")
 
 assistant = pick_assistant(db.list_assistants(org_id), key="sources_assistant")
 if not assistant:
@@ -31,7 +38,7 @@ def run_ingest(kind: str, name: str, extract) -> None:
             st.error(str(e))
 
 
-tab_files, tab_url, tab_text = st.tabs(["📄 فایل", "🔗 لینک وب", "📝 متن"])
+tab_files, tab_url, tab_text = st.tabs([":material/description: فایل", ":material/link: لینک وب", ":material/notes: متن"])
 
 with tab_files:
     st.caption("فرمت‌های پشتیبانی‌شده: " + "، ".join(loaders.SUPPORTED_EXTS))
@@ -81,19 +88,25 @@ with tab_text:
         else:
             run_ingest("text", title.strip(), lambda _: (title.strip(), [("", body)]))
 
-st.divider()
 sources = db.list_sources(org_id, assistant["id"])
-st.subheader(f"منابع «{assistant['name']}» ({len(sources)})")
+st.subheader(f"منابع «{md_escape(assistant['name'])}» ({len(sources)})", icon=":material/folder_open:")
 if not sources:
-    st.info("هنوز منبعی اضافه نشده است.")
+    st.caption("هنوز منبعی اضافه نشده است؛ از بخش بالا فایل، لینک یا متن اضافه کنید.")
 
 for s in sources:
-    cols = st.columns([5, 2, 2, 1])
-    cols[0].markdown(f"**{s['name']}**  \n{KIND_LABELS[s['kind']]} · {format_time(s['created_at'])}")
-    cols[1].write(STATUS_LABELS[s["status"]])
-    cols[2].write(f"{s['n_chunks']} تکه" if s["status"] == "ready" else "")
-    if cols[3].button("🗑️", key=f"del_src_{s['id']}", help="حذف منبع"):
-        db.delete_source(org_id, s["id"])
-        st.rerun()
-    if s["status"] == "error" and s["error"]:
-        st.caption(f"⚠️ {s['error']}")
+    with st.container(border=True, horizontal=True, vertical_alignment="center"):
+        st.markdown(KIND_ICONS[s["kind"]], width="content")
+        with st.container(gap=None):
+            # نام منبع ممکن است عنوان یک صفحه‌ی وب باشد؛ به‌عنوان Markdown تفسیر نمی‌شود
+            st.markdown(f"**{md_escape(s['name'])}**")
+            meta = f"{KIND_LABELS[s['kind']]} · {format_time(s['created_at'])}"
+            if s["status"] == "ready":
+                meta += f" · {s['n_chunks']} تکه"
+            st.caption(meta)
+            if s["status"] == "error" and s["error"]:
+                st.caption(f":red[{md_escape(s['error'])}]")
+        label, color, icon = STATUS_BADGES[s["status"]]
+        st.badge(label, color=color, icon=icon)
+        if st.button("حذف", icon=":material/delete:", key=f"del_src_{s['id']}", help="حذف منبع", type="tertiary"):
+            db.delete_source(org_id, s["id"])
+            st.rerun()

@@ -7,24 +7,21 @@ import streamlit as st
 
 import config
 
+# Streamlit راست‌به‌چپ ندارد؛ فونت و رنگ‌ها از تم (.streamlit/config.toml) می‌آیند و اینجا فقط جهت متن است.
 RTL_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap');
-
-[data-testid="stAppViewContainer"], [data-testid="stSidebar"] { direction: rtl; }
-[data-testid="stMarkdownContainer"], p, li, h1, h2, h3, h4, h5, h6, label,
-input, textarea, button, [data-testid="stCaptionContainer"], [data-baseweb="select"],
-[data-testid="stChatMessageContent"], [data-testid="stExpander"] summary {
-    font-family: 'Vazirmatn', 'Source Sans Pro', sans-serif !important;
+[data-testid="stAppViewContainer"], [data-testid="stSidebar"], [data-testid="stBottom"] { direction: rtl; }
+input, textarea { direction: rtl; }
+/* تراز پیش‌فرض Streamlit «چپ» است که برای فارسی غلط است؛ start یعنی راست برای فارسی و چپ برای انگلیسی */
+[data-testid="stMarkdownContainer"] :is(p, li, h1, h2, h3, h4, h5, h6),
+[data-testid="stCaptionContainer"] p, [data-testid="stHeading"] :is(h1, h2, h3, h4, h5, h6) {
+    text-align: start !important;  /* استایل‌های خود Streamlit بعد از این بارگذاری می‌شوند */
 }
-[data-testid="stMarkdownContainer"], [data-testid="stChatMessageContent"],
-[data-testid="stCaptionContainer"] { text-align: right; }
-input, textarea { direction: rtl; text-align: right; }
+/* عناصری که عمداً وسط‌چین‌اند داخل ظرفی با کلید center_... قرار می‌گیرند (کلاس پایدار st-key-...) */
+[class*="st-key-center"] :is(p, li, h1, h2, h3, h4, h5, h6) { text-align: center !important; }
 code, pre, [data-testid="stCode"] { direction: ltr; text-align: left; }
-[data-testid="stSidebarNav"] a { flex-direction: row-reverse; justify-content: flex-end; gap: .5rem; }
-.source-box { border-right: 3px solid #6c8cff; padding: .4rem .8rem; margin: .4rem 0;
-              background: rgba(108,140,255,.07); border-radius: 4px; font-size: .9rem;
-              white-space: pre-wrap; }
+.source-box { border-right: 3px solid rgba(99, 102, 241, .6); padding: .4rem .8rem; margin: .4rem 0;
+              background: rgba(99, 102, 241, .06); border-radius: .5rem; font-size: .9rem; white-space: pre-wrap; }
 </style>
 """
 

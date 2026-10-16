@@ -4,10 +4,44 @@ maxUploadSize = 50
 [browser]
 gatherUsageStats = false
 
-[theme]
-primaryColor = "#4f6bed"
-
 [client]
 # جزئیات خطا (مسیر فایل‌ها، کد) به کاربر نمایش داده نمی‌شود و فقط در لاگ سرور می‌آید.
 # برای دیدن جزئیات هنگام توسعه: STREAMLIT_CLIENT_SHOW_ERROR_DETAILS=full
 showErrorDetails = "none"
+# دکمه‌های توسعه‌دهنده (Deploy و ...) به کاربران نمایش داده نمی‌شود
+toolbarMode = "minimal"
+
+# ---------- تم: فونت وزیرمتن، رنگ نیلی، گوشه‌های گرد؛ حالت روشن و تیره ----------
+[theme]
+font = "Vazirmatn:https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap"
+headingFontWeights = [700, 650, 600, 600, 500, 500]
+baseRadius = "large"
+buttonRadius = "full"
+showWidgetBorder = true
+linkUnderline = false
+
+[theme.light]
+primaryColor = "#4f46e5"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f5fb"
+textColor = "#1d2033"
+borderColor = "#e2e4f0"
+blueColor = "#4f46e5"
+
+[theme.light.sidebar]
+backgroundColor = "#f7f7fc"
+secondaryBackgroundColor = "#eceef8"
+borderColor = "#e2e4f0"
+
+[theme.dark]
+primaryColor = "#818cf8"
+backgroundColor = "#0f1117"
+secondaryBackgroundColor = "#1a1d2b"
+textColor = "#e6e8f2"
+borderColor = "#2a2e40"
+blueColor = "#818cf8"
+
+[theme.dark.sidebar]
+backgroundColor = "#141724"
+secondaryBackgroundColor = "#1f2333"
+borderColor = "#2a2e40"
