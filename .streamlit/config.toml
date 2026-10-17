@@ -1,5 +1,9 @@
 [server]
 maxUploadSize = 50
+# بارگذاری دوباره‌ی ماژول‌ها هنگام تغییر فایل خاموش است: وقتی چند فایل با هم عوض می‌شوند (مثلاً
+# Streamlit Cloud بعد از push)، ماژول‌های قدیم و جدید قاطی می‌شدند (KeyError: 'core.sessions').
+# کد جدید فقط با ری‌استارت کامل (Reboot app یا اجرای دوباره) اعمال می‌شود.
+fileWatcherType = "none"
 
 [browser]
 gatherUsageStats = false
