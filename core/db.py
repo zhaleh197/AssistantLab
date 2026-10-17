@@ -185,6 +185,10 @@ COLUMN_MIGRATIONS = [
     ("assistants", "public_daily_limit", "INTEGER NOT NULL DEFAULT 200"),
     # سؤال‌های پیشنهادی صفحه‌ی خوش‌آمد گفتگو (هر خط یک سؤال)
     ("assistants", "starter_questions", "TEXT NOT NULL DEFAULT ''"),
+    # برند سازمان: رنگ اصلی و آواتار دستیارها (sparkle / initial / image)
+    ("organizations", "brand_color", "TEXT NOT NULL DEFAULT '#6366f1'"),
+    ("organizations", "avatar_mode", "TEXT NOT NULL DEFAULT 'sparkle'"),
+    ("organizations", "avatar_image", "TEXT NOT NULL DEFAULT ''"),
 ]
 INDEX_MIGRATIONS = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_organizations_slug ON organizations(slug) WHERE slug IS NOT NULL",
@@ -399,10 +403,21 @@ def get_org_by_slug(slug: str) -> dict | None:
     return dict(row) if row else None
 
 
+_ORG_COLUMNS = "id, name, slug, brand_color, avatar_mode, avatar_image"
+
+
 def get_org(org_id: int) -> dict | None:
     with connect() as c:
-        row = c.execute("SELECT id, name, slug FROM organizations WHERE id = ?", (org_id,)).fetchone()
+        row = c.execute(f"SELECT {_ORG_COLUMNS} FROM organizations WHERE id = ?", (org_id,)).fetchone()
     return dict(row) if row else None
+
+
+def set_org_branding(org_id: int, brand_color: str, avatar_mode: str, avatar_image: str) -> None:
+    with connect() as c:
+        c.execute(
+            "UPDATE organizations SET brand_color = ?, avatar_mode = ?, avatar_image = ? WHERE id = ?",
+            (brand_color, avatar_mode, avatar_image, org_id),
+        )
 
 
 def set_org_slug(org_id: int, slug: str) -> None:
@@ -515,6 +530,7 @@ def get_public_assistant(token: str) -> dict | None:
     with connect() as c:
         row = c.execute(
             """SELECT a.*, o.name AS org_name,
+                      o.brand_color, o.avatar_mode, o.avatar_image,
                       (SELECT COUNT(*) FROM chunks ch WHERE ch.assistant_id = a.id) AS n_chunks
                FROM assistants a JOIN organizations o ON o.id = a.org_id
                WHERE a.public_token = ?""",

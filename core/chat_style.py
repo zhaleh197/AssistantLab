@@ -4,36 +4,23 @@
 تا با به‌روزرسانی Streamlit نشکنند. رنگ‌ها بر اساس حالت روشن/تیره‌ی کاربر در پایتون انتخاب می‌شوند،
 چون Streamlit رنگ‌های تم را به‌صورت متغیر CSS در صفحه نمی‌گذارد.
 """
-import base64
 import html
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-# آواتار دستیار: دایره‌ی گرادیان با نشان «درخشش»
-_ASSISTANT_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0" stop-color="#6366f1"/><stop offset=".55" stop-color="#8b5cf6"/><stop offset="1" stop-color="#ec4899"/>
-</linearGradient></defs>
-<rect width="64" height="64" rx="20" fill="url(#g)"/>
-<path d="M32 13c1.6 8.6 6.4 13.4 15 15-8.6 1.6-13.4 6.4-15 15-1.6-8.6-6.4-13.4-15-15 8.6-1.6 13.4-6.4 15-15z" fill="#fff"/>
-<path d="M46 39c.7 3.7 2.8 5.8 6.5 6.5-3.7.7-5.8 2.8-6.5 6.5-.7-3.7-2.8-5.8-6.5-6.5 3.7-.7 5.8-2.8 6.5-6.5z" fill="#fff" opacity=".85"/>
-</svg>"""
-
-ASSISTANT_AVATAR = "data:image/svg+xml;base64," + base64.b64encode(_ASSISTANT_SVG.encode()).decode()
+from core import branding
 
 PALETTES = {
     "light": {
-        "bg": "#ffffff", "glow": "rgba(99, 102, 241, .13)", "card": "#ffffff", "card-border": "#e8e9f3",
+        "bg": "#ffffff", "card": "#ffffff", "card-border": "#e8e9f3",
         "card-shadow": "0 6px 24px -14px rgba(30, 27, 75, .35)", "muted": "#6b7085", "text": "#1d2033",
-        "chip-bg": "rgba(99, 102, 241, .08)", "chip-text": "#4f46e5", "chip-border": "rgba(99, 102, 241, .2)",
         "header-bg": "rgba(255, 255, 255, .82)", "dot": "#a0a4bd", "suggest-hover": "#f7f7ff",
     },
     "dark": {
-        "bg": "#0f1117", "glow": "rgba(129, 140, 248, .16)", "card": "#171a26", "card-border": "#272b3d",
+        "bg": "#0f1117", "card": "#171a26", "card-border": "#272b3d",
         "card-shadow": "0 6px 24px -14px rgba(0, 0, 0, .6)", "muted": "#9aa0b8", "text": "#e6e8f2",
-        "chip-bg": "rgba(129, 140, 248, .12)", "chip-text": "#a5b4fc", "chip-border": "rgba(129, 140, 248, .25)",
         "header-bg": "rgba(15, 17, 23, .8)", "dot": "#6b7091", "suggest-hover": "#1d2132",
     },
 }
@@ -49,7 +36,7 @@ _CSS = """
 .al-hero { text-align: center; padding: 2.2rem 0 .6rem; animation: al-rise .6s ease-out both; }
 .al-hero-avatar {
   width: 88px; height: 88px; margin: 0 auto 1.1rem; border-radius: 28px;
-  box-shadow: 0 16px 40px -12px rgba(99, 102, 241, .6); animation: al-float 6s ease-in-out infinite;
+  box-shadow: 0 16px 40px -12px var(--al-shadow); animation: al-float 6s ease-in-out infinite;
 }
 .al-hero-avatar img { width: 100%; height: 100%; display: block; }
 .al-greet { font-size: 1.85rem; font-weight: 700; color: var(--al-text); margin: 0 0 .35rem; line-height: 1.5; }
@@ -71,7 +58,7 @@ _CSS = """
   transition: transform .15s ease, border-color .15s ease, background .15s ease; padding: .7rem 1rem;
 }
 .st-key-al_suggest button:hover {
-  transform: translateY(-2px); border-color: #818cf8; background: var(--al-suggest-hover);
+  transform: translateY(-2px); border-color: var(--al-hover-border); background: var(--al-suggest-hover);
 }
 .st-key-al_suggest button p { text-align: start !important; font-size: .92rem; }
 
@@ -82,7 +69,7 @@ _CSS = """
   border-bottom: 1px solid var(--al-card-border);
 }
 .al-head { display: flex; align-items: center; gap: .75rem; }
-.al-head img { width: 42px; height: 42px; border-radius: 14px; box-shadow: 0 6px 18px -8px rgba(99, 102, 241, .7); }
+.al-head img { width: 42px; height: 42px; border-radius: 14px; box-shadow: 0 6px 18px -8px var(--al-shadow); }
 .al-head-name { font-weight: 700; font-size: 1.05rem; color: var(--al-text); line-height: 1.4; }
 .al-head-status { font-size: .78rem; color: #059669; display: flex; align-items: center; gap: .35rem; }
 .al-head-status::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; background: #10b981; }
@@ -95,10 +82,10 @@ _CSS = """
   /* در راست‌به‌چپ، حباب کاربر به سمت مقابلِ دستیار (چپ) می‌رود */
   margin-inline-start: auto !important; margin-inline-end: 0 !important; flex: 0 1 auto; width: auto;
   max-width: 80%; padding: .7rem 1.05rem;
-  background: linear-gradient(135deg, #6366f1, #7c3aed); color: #fff;
-  border-radius: 20px; border-end-end-radius: 6px; box-shadow: 0 10px 24px -14px rgba(79, 70, 229, .9);
+  background: linear-gradient(135deg, var(--al-brand), var(--al-brand-2)); color: var(--al-on-brand);
+  border-radius: 20px; border-end-end-radius: 6px; box-shadow: 0 10px 24px -14px var(--al-shadow);
 }
-[data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) [data-testid="stChatMessageContent"] * { color: #fff !important; }
+[data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) [data-testid="stChatMessageContent"] * { color: var(--al-on-brand) !important; }
 /* پاسخ دستیار: کارت نرم کنار آواتار */
 [data-testid="stChatMessage"]:has([aria-label="Chat message from assistant"]) [data-testid="stChatMessageContent"] {
   background: var(--al-card); border: 1px solid var(--al-card-border); box-shadow: var(--al-card-shadow);
@@ -136,10 +123,25 @@ _CSS = """
 """
 
 
-def apply() -> None:
-    palette = PALETTES["dark" if st.context.theme.type == "dark" else "light"]
-    variables = "; ".join(f"--al-{k}: {v}" for k, v in palette.items())
+def apply(brand: dict | None = None) -> None:
+    """استایل گفتگو با رنگ‌های برند سازمان (brand از branding.from_org)."""
+    dark = st.context.theme.type == "dark"
+    colors = dict(PALETTES["dark" if dark else "light"])
+    p = branding.palette((brand or {}).get("color", branding.DEFAULT_COLOR))
+    colors.update({
+        "brand": p["brand"], "brand-2": p["brand-2"], "on-brand": p["on-brand"],
+        "shadow": p["shadow"], "hover-border": p["hover-border"], "chip-border": p["chip-border"],
+        "glow": p["glow-dark"] if dark else p["glow"],
+        "chip-bg": p["chip-bg-dark"] if dark else p["chip-bg"],
+        "chip-text": p["chip-text-dark"] if dark else p["chip-text"],
+    })
+    variables = "; ".join(f"--al-{k}: {v}" for k, v in colors.items())
     st.html(f"<style>:root {{ {variables} }}\n{_CSS}</style>")
+
+
+def assistant_avatar(brand: dict | None, assistant_name: str) -> str:
+    brand = brand or branding.from_org(None)
+    return branding.avatar_uri(brand["color"], brand["mode"], assistant_name, brand["image"])
 
 
 def greeting() -> str:
@@ -157,19 +159,19 @@ def greeting() -> str:
     return "شب بخیر"
 
 
-def hero_html(name: str, description: str) -> str:
+def hero_html(name: str, description: str, avatar: str) -> str:
     sub = html.escape(description) if description else "سؤالتان را بپرسید تا از روی منابع پاسخ بدهم."
     return f"""<div class="al-hero">
-  <div class="al-hero-avatar"><img src="{ASSISTANT_AVATAR}" alt=""></div>
+  <div class="al-hero-avatar"><img src="{avatar}" alt=""></div>
   <p class="al-greet">{greeting()}! من {html.escape(name)} هستم</p>
   <p class="al-sub">{sub}</p>
   <span class="al-status">آنلاین و آماده‌ی پاسخ‌گویی</span>
 </div>"""
 
 
-def header_html(name: str) -> str:
+def header_html(name: str, avatar: str) -> str:
     return f"""<div class="al-head">
-  <img src="{ASSISTANT_AVATAR}" alt="">
+  <img src="{avatar}" alt="">
   <div><div class="al-head-name">{html.escape(name)}</div><div class="al-head-status">آنلاین</div></div>
 </div>"""
 

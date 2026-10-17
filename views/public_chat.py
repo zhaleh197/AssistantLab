@@ -5,13 +5,17 @@ from datetime import datetime, timezone
 import streamlit as st
 
 import config
-from core import chat_style, chat_ui, db
+from core import branding, chat_style, chat_ui, db
 
 assistant = st.session_state["public_assistant"]
 PILLS_KEY = "public_starters"
 
-st.set_page_config(page_title=assistant["name"], page_icon=":material/auto_awesome:", layout="centered")
-chat_style.apply()
+brand = branding.from_org(assistant)  # ستون‌های برند سازمان همراه دستیار خوانده می‌شوند
+avatar = chat_style.assistant_avatar(brand, assistant["name"])
+assistant = {**assistant, "avatar": avatar}
+
+st.set_page_config(page_title=assistant["name"], page_icon=avatar, layout="centered")
+chat_style.apply(brand)
 
 history: list[dict] = st.session_state.setdefault("public_history", [])
 session_full = len(history) // 2 >= config.PUBLIC_SESSION_LIMIT
@@ -25,7 +29,7 @@ if history or question:
 else:
     chat_ui.welcome(assistant, PILLS_KEY)
 
-chat_ui.render_history(history, show_excerpts=False)
+chat_ui.render_history(assistant, history, show_excerpts=False)
 
 if session_full:
     st.caption("‏:material/info: به سقف تعداد سؤال در این گفتگو رسیده‌اید؛ برای ادامه «گفتگوی جدید» را بزنید.")

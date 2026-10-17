@@ -44,6 +44,7 @@ PAGES = {
     "assistants": st.Page("views/assistants.py", title="دستیارها", icon=":material/smart_toy:"),
     "sources": st.Page("views/sources.py", title="منابع", icon=":material/library_books:"),
     "team": st.Page("views/team.py", title="اعضای سازمان", icon=":material/group:"),
+    "branding": st.Page("views/branding.py", title="ظاهر و برند", icon=":material/palette:"),
 }
 
 # توکن ورود در مرورگر نگه داشته می‌شود (core/browser_store.py)؛ در اولین اجرای هر نشست
@@ -171,7 +172,7 @@ st.session_state["user"] = user
 
 pages = [PAGES["chat"]]
 if user["role"] == "admin":
-    pages += [PAGES["assistants"], PAGES["sources"], PAGES["team"]]
+    pages += [PAGES["assistants"], PAGES["sources"], PAGES["team"], PAGES["branding"]]
 nav = st.navigation(pages)
 
 # ابزارهای هر صفحه (انتخاب دستیار، گفتگوی جدید، ...) بالای نوار کناری می‌آیند و اطلاعات کاربر پایین آن؛

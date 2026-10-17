@@ -1,13 +1,14 @@
 import streamlit as st
 
 from core import chat_style, chat_ui, db, perf
-from core.ui import current_user, pick_assistant
+from core.ui import current_user, org_brand, pick_assistant
 
 st.set_page_config(layout="centered")  # گفتگو در ستون باریک‌تر خواناتر است
-chat_style.apply()
 
 user = current_user()
 org_id = user["org_id"]
+brand = org_brand(org_id)
+chat_style.apply(brand)
 
 with perf.timed("list_assistants"):
     assistants = db.list_assistants(org_id)
@@ -21,6 +22,8 @@ if not assistants:
 
 with st.sidebar:
     assistant = pick_assistant(assistants, key="chat_assistant")
+
+assistant = {**assistant, "avatar": chat_style.assistant_avatar(brand, assistant["name"])}
 
 chats = st.session_state.setdefault("chats", {})
 history: list[dict] = chats.setdefault(assistant["id"], [])
@@ -43,7 +46,7 @@ else:
         st.container(key="center_no_sources").caption("\u200f:material/info: این دستیار هنوز منبعی ندارد؛ تا منبع اضافه نشود نمی‌تواند پاسخ دقیق بدهد.",
                    text_alignment="center")
 
-chat_ui.render_history(history, show_excerpts=True)
+chat_ui.render_history(assistant, history, show_excerpts=True)
 
 if question:
     chat_ui.answer(assistant, history, question, show_excerpts=True)

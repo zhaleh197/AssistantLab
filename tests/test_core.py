@@ -470,6 +470,7 @@ def test_old_sqlite_database_gets_answer_mode_column(tmp_path, monkeypatch, back
     assert migrated["answer_mode"] == "sources"
     assert migrated["public_token"] is None and migrated["public_daily_limit"] == 200
     assert db.get_org(1)["slug"] is None
+    assert db.get_org(1)["brand_color"] == "#6366f1" and db.get_org(1)["avatar_mode"] == "sparkle"
 
 
 def test_rules_follow_answer_mode():
@@ -537,3 +538,70 @@ def test_public_usage_counts_per_day_and_is_removed_with_assistant():
     assert db.public_usage_today(aid, "2026-10-14") == 3 and db.public_usage_today(aid, "2026-01-01") == 0
     db.delete_assistant(org["org_id"], aid)
     assert db.public_usage_today(aid, "2026-10-14") == 0
+
+
+
+# ---------- برند سازمان ----------
+
+def test_brand_palette_keeps_text_readable():
+    from core import branding
+
+    assert branding.normalize_color("red") == branding.DEFAULT_COLOR
+    assert branding.normalize_color("#ABCDEF") == "#abcdef"
+    for color in ("#6366f1", "#facc15", "#0ea5e9", "#111827", "#ffffff", "#16a34a"):
+        p = branding.palette(color)
+        assert branding.contrast(p["chip-text"], "#ffffff") >= 4.5
+        assert branding.contrast(p["chip-text-dark"], "#171a26") >= 4.5
+        assert branding.contrast(p["on-brand"], p["brand"]) >= 3     # متن حباب کاربر روی رنگ برند
+    assert branding.palette("#facc15")["on-brand"] != "#ffffff"      # زرد روشن ← متن تیره
+
+
+def test_avatar_uri_modes():
+    from core import branding
+
+    assert branding.avatar_uri("#10b981").startswith("data:image/svg+xml;base64,")
+    initial = branding.avatar_uri("#10b981", "initial", "<دستیار>")
+    import base64
+    svg = base64.b64decode(initial.split(",", 1)[1]).decode()
+    assert "&lt;" in svg and "<دستیار>" not in svg                   # نام escape می‌شود
+    png = "data:image/png;base64,AAAA"
+    assert branding.avatar_uri("#10b981", "image", "x", png) == png
+    assert branding.avatar_uri("#10b981", "image", "x", "data:image/svg+xml;base64,AAAA").startswith("data:image/svg")
+
+
+def test_uploaded_logo_is_reencoded_as_square_png():
+    import base64
+    from PIL import Image
+    from core import branding
+
+    buf = io.BytesIO()
+    Image.new("RGB", (800, 400), "#ff0000").save(buf, format="JPEG")
+    uri = branding.process_upload(buf.getvalue())
+    assert uri.startswith("data:image/png;base64,")
+    with Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1]))) as out:
+        assert out.format == "PNG" and out.size == (256, 256)
+
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    for bad in (svg, b"not an image", b"x" * (branding.MAX_UPLOAD_BYTES + 1)):
+        with pytest.raises(branding.InvalidImage):
+            branding.process_upload(bad)
+
+
+def test_org_branding_is_saved_and_reaches_public_assistant():
+    org = make_org()
+    db.set_org_branding(org["org_id"], "#10b981", "initial", "")
+    saved = db.get_org(org["org_id"])
+    assert (saved["brand_color"], saved["avatar_mode"]) == ("#10b981", "initial")
+
+    aid = db.create_assistant(org["org_id"], "x", "", "")
+    db.set_public_link(org["org_id"], aid, "brand-token")
+    public = db.get_public_assistant("brand-token")
+    assert (public["brand_color"], public["avatar_mode"]) == ("#10b981", "initial")
+
+
+def test_avatar_initial_skips_generic_words():
+    from core.branding import initial_of
+
+    assert initial_of("دستیار اکام") == "ا"
+    assert initial_of("شرکت فناوری نوین") == "ف"
+    assert initial_of("دستیار") == "د" and initial_of("akam bot") == "A"

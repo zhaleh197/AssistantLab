@@ -1,4 +1,5 @@
 """ابزارهای مشترک رابط کاربری Streamlit."""
+import time
 from datetime import datetime
 from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo
@@ -37,6 +38,22 @@ def app_base_url() -> str:
 
 def share_link(**params: str) -> str:
     return f"{app_base_url()}/?{urlencode(params)}"
+
+
+BRAND_CACHE = "_org_brand"
+BRAND_CACHE_SECONDS = 60
+
+
+def org_brand(org_id: int) -> dict:
+    """تنظیمات برند سازمان؛ تا یک دقیقه در همین نشست نگه داشته می‌شود تا هر پیام یک رفت‌وبرگشت کمتر داشته باشد."""
+    from core import branding, db
+
+    cached = st.session_state.get(BRAND_CACHE)
+    if cached and cached["org_id"] == org_id and time.monotonic() - cached["at"] < BRAND_CACHE_SECONDS:
+        return cached["brand"]
+    brand = branding.from_org(db.get_org(org_id))
+    st.session_state[BRAND_CACHE] = {"org_id": org_id, "brand": brand, "at": time.monotonic()}
+    return brand
 
 
 def format_time(value) -> str:

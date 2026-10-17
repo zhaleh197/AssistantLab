@@ -14,3 +14,4 @@ playwright>=1.45
 psycopg[binary]>=3.2
 psycopg-pool>=3.2
 pgvector>=0.3
+pillow>=10

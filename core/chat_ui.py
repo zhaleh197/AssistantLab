@@ -10,7 +10,12 @@ from openai import APIError, NotFoundError
 import config
 from core import chat_style, llm, perf, rag, retrieval
 
-AVATARS = {"user": ":material/person:", "assistant": chat_style.ASSISTANT_AVATAR}
+USER_AVATAR = ":material/person:"
+
+
+def _avatar(assistant: dict) -> str:
+    """آواتار دستیار؛ صفحه‌ها آن را از تنظیمات برند سازمان در assistant["avatar"] می‌گذارند."""
+    return assistant.get("avatar") or chat_style.assistant_avatar(None, assistant["name"])
 _MD_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+\-.!|>~<])")
 
 
@@ -28,7 +33,7 @@ def starter_questions(assistant: dict) -> list[str]:
 
 def welcome(assistant: dict, pills_key: str) -> None:
     """پیش از اولین پیام: معرفی گرم دستیار و کارت‌های سؤال پیشنهادی."""
-    st.html(chat_style.hero_html(assistant["name"], assistant.get("description") or ""))
+    st.html(chat_style.hero_html(assistant["name"], assistant.get("description") or "", _avatar(assistant)))
     questions = starter_questions(assistant)
     if not questions:
         return
@@ -54,7 +59,7 @@ def take_starter(pills_key: str) -> str | None:
 def header(assistant: dict, on_new_chat=None) -> None:
     """سرصفحه‌ی چسبان در طول گفتگو: آواتار، نام، وضعیت و دکمه‌ی گفتگوی جدید."""
     with st.container(key="al_header", horizontal=True, vertical_alignment="center"):
-        st.html(chat_style.header_html(assistant["name"]), width="stretch")
+        st.html(chat_style.header_html(assistant["name"], _avatar(assistant)), width="stretch")
         if on_new_chat and st.button("گفتگوی جدید", icon=":material/add_comment:", type="tertiary"):
             on_new_chat()
 
@@ -75,9 +80,9 @@ def render_sources(sources: list[dict], show_excerpts: bool) -> None:
             st.markdown(f"<div class='source-box'>{html.escape(s['content'])}</div>", unsafe_allow_html=True)
 
 
-def render_history(history: list[dict], show_excerpts: bool) -> None:
+def render_history(assistant: dict, history: list[dict], show_excerpts: bool) -> None:
     for msg in history:
-        with st.chat_message(msg["role"], avatar=AVATARS[msg["role"]]):
+        with st.chat_message(msg["role"], avatar=USER_AVATAR if msg["role"] == "user" else _avatar(assistant)):
             st.markdown(msg["content"])
             render_sources(msg.get("sources", []), show_excerpts)
 
@@ -85,10 +90,10 @@ def render_history(history: list[dict], show_excerpts: bool) -> None:
 def answer(assistant: dict, history: list[dict], question: str, show_excerpts: bool) -> None:
     """سؤال را نمایش می‌دهد، پاسخ را جریانی می‌نویسد و هر دو را به history اضافه می‌کند.
     در صورت خطا پیام مناسب نمایش داده می‌شود و اجرای صفحه متوقف می‌شود."""
-    with st.chat_message("user", avatar=AVATARS["user"]):
+    with st.chat_message("user", avatar=USER_AVATAR):
         st.markdown(question)
 
-    with st.chat_message("assistant", avatar=AVATARS["assistant"]):
+    with st.chat_message("assistant", avatar=_avatar(assistant)):
         try:
             if rag.is_small_talk(question):
                 hits = []  # احوال‌پرسی و تشکر جستجو نمی‌خواهد
