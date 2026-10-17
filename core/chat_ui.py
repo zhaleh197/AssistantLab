@@ -39,12 +39,14 @@ def welcome(assistant: dict, pills_key: str) -> None:
         return
     st.html('<p class="al-suggest-title">می‌توانید از این‌جا شروع کنید</p>')
     with st.container(key="al_suggest"):
-        columns = st.columns(2)
-        for i, q in enumerate(questions):
-            columns[i % 2].button(
-                q, key=f"{pills_key}_{i}", icon=":material/chat_bubble:", width="stretch",
-                on_click=_pick_starter, args=(pills_key, q),
-            )
+        # ردیف به ردیف (نه ستون به ستون) تا در گوشی که ستون‌ها زیر هم می‌روند، ترتیب سؤال‌ها حفظ شود
+        for row in range(0, len(questions), 2):
+            columns = st.columns(2)
+            for col, (i, q) in zip(columns, enumerate(questions[row:row + 2], start=row)):
+                col.button(
+                    q, key=f"{pills_key}_{i}", icon=":material/chat_bubble:", width="stretch",
+                    on_click=_pick_starter, args=(pills_key, q),
+                )
 
 
 def _pick_starter(pills_key: str, question: str) -> None:

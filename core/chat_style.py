@@ -62,6 +62,8 @@ _CSS = """
   transform: translateY(-2px); border-color: var(--al-hover-border); background: var(--al-suggest-hover);
 }
 .st-key-al_suggest button p { text-align: start !important; font-size: .92rem; }
+/* فاصله‌ی یکسان بین کارت‌ها، چه در یک ردیف و چه بین ردیف‌ها (و وقتی در گوشی زیر هم می‌روند) */
+.st-key-al_suggest, .st-key-al_suggest [data-testid="stHorizontalBlock"] { gap: .6rem; }
 
 /* ---------- سرصفحه‌ی گفتگو ---------- */
 .st-key-al_header {
@@ -116,9 +118,41 @@ _CSS = """
 
 /* کادر پیام */
 [data-testid="stChatInput"] { border-radius: 22px; box-shadow: 0 12px 34px -16px rgba(30, 27, 75, .45); }
-[data-testid="stBottom"] > div { background: transparent; }
+/* نوار پایین زمینه‌ی یکدست دارد تا متن گفتگو از پشت کادر پیام دیده نشود */
+[data-testid="stBottom"] > div { background: var(--al-bg); }
+/* فاصله‌ی خالی بالای صفحه (پیش‌فرض ۶rem) برای گفتگو زیاد است */
+[data-testid="stMainBlockContainer"] { padding-top: 2.5rem; }
+[data-testid="stChatMessageContent"] :is(ul, ol) { padding-inline-start: 1.4rem; }
 
 .al-footnote { text-align: center; color: var(--al-muted); font-size: .75rem; margin-top: .8rem; }
+
+/* ---------- گوشی (عرض کم) ---------- */
+@media (max-width: 640px) {
+  [data-testid="stMainBlockContainer"] { padding: 1rem .75rem 1rem; }
+  .al-hero { padding: .6rem 0 .2rem; }
+  .al-hero-avatar { width: 68px; height: 68px; border-radius: 22px; margin-bottom: .8rem; }
+  .al-hero-avatar img { border-radius: 22px; }
+  .al-greet { font-size: 1.35rem; }
+  .al-sub { font-size: .92rem; line-height: 1.8; }
+  .al-suggest-title { margin-top: 1.1rem; }
+  .st-key-al_suggest button { min-height: 2.9rem; padding: .5rem .8rem; border-radius: 14px; }
+  .st-key-al_suggest button p { font-size: .88rem; }
+  .st-key-al_suggest, .st-key-al_suggest [data-testid="stHorizontalBlock"] { gap: .5rem; }
+  .st-key-al_header { padding: .4rem 0; }
+  .al-head img { width: 36px; height: 36px; border-radius: 12px; }
+  /* آواتار کنار هر پاسخ حذف می‌شود (در سرصفحه هست) تا متن پاسخ تمام عرض را بگیرد */
+  [data-testid="stChatMessage"] > img,
+  [data-testid="stChatMessage"] [data-testid^="stChatMessageAvatar"] { display: none; }
+  [data-testid="stChatMessage"]:has([aria-label="Chat message from assistant"]) [data-testid="stChatMessageContent"] {
+    padding: .7rem .85rem; border-radius: 16px; border-start-start-radius: 6px;
+  }
+  [data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) [data-testid="stChatMessageContent"] {
+    max-width: 88%; padding: .6rem .9rem;
+  }
+  [data-testid="stChatMessageContent"] p, [data-testid="stChatMessageContent"] li { line-height: 1.85; }
+  [data-testid="stChatMessageContent"] :is(ul, ol) { padding-inline-start: 1.1rem; }
+  .al-footnote { font-size: .7rem; }
+}
 
 @keyframes al-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes al-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }

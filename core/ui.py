@@ -13,6 +13,11 @@ RTL_CSS = """
 <style>
 [data-testid="stAppViewContainer"], [data-testid="stSidebar"], [data-testid="stBottom"] { direction: rtl; }
 input, textarea { direction: rtl; }
+/* نوار کناری بسته: Streamlit آن را ۳۰۰px به چپ می‌برد به این فرض که در لبه‌ی چپ است؛ در چیدمان
+   راست‌به‌چپ نوار کناری سمت راست است و آن جابه‌جایی آن را داخل صفحه می‌انداخت (به‌خصوص در گوشی) */
+/* display (نه visibility) چون بعضی اجزای داخلی visibility خودشان را صریحاً visible می‌کنند؛
+   دکمه‌ی باز کردن دوباره‌ی نوار کناری بیرون از این بخش (در سرصفحه) است */
+[data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarContent"] { display: none; }
 /* تراز پیش‌فرض Streamlit «چپ» است که برای فارسی غلط است؛ start یعنی راست برای فارسی و چپ برای انگلیسی */
 [data-testid="stMarkdownContainer"] :is(p, li, h1, h2, h3, h4, h5, h6),
 [data-testid="stCaptionContainer"] p, [data-testid="stHeading"] :is(h1, h2, h3, h4, h5, h6) {
@@ -21,6 +26,13 @@ input, textarea { direction: rtl; }
 /* عناصری که عمداً وسط‌چین‌اند داخل ظرفی با کلید center_... قرار می‌گیرند (کلاس پایدار st-key-...) */
 [class*="st-key-center"] :is(p, li, h1, h2, h3, h4, h5, h6) { text-align: center !important; }
 code, pre, [data-testid="stCode"] { direction: ltr; text-align: left; }
+/* گوشی: فاصله‌ی خالی بالای صفحه (۶rem) و عنوان‌های بزرگ برای صفحه‌ی کوچک زیاد است */
+@media (max-width: 640px) {
+  [data-testid="stMainBlockContainer"] { padding-top: 3rem; padding-left: .85rem; padding-right: .85rem; }
+  [data-testid="stHeading"] h1 { font-size: 1.75rem; }
+  [data-testid="stHeading"] h2 { font-size: 1.35rem; }
+  [data-testid="stHeading"] h3 { font-size: 1.15rem; }
+}
 .source-box { border-right: 3px solid rgba(99, 102, 241, .6); padding: .4rem .8rem; margin: .4rem 0;
               background: rgba(99, 102, 241, .06); border-radius: .5rem; font-size: .9rem; white-space: pre-wrap; }
 </style>
