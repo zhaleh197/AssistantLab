@@ -569,29 +569,72 @@ def test_avatar_uri_modes():
     assert branding.avatar_uri("#10b981", "image", "x", "data:image/svg+xml;base64,AAAA").startswith("data:image/svg")
 
 
-def test_uploaded_logo_is_reencoded_as_square_png():
+def _png_bytes(img, fmt="PNG"):
+    buf = io.BytesIO()
+    img.save(buf, format=fmt)
+    return buf.getvalue()
+
+
+def _decode_png(uri):
     import base64
     from PIL import Image
+
+    return Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1]))).convert("RGBA")
+
+
+def test_wide_logo_is_trimmed_and_fully_visible():
+    from PIL import Image, ImageDraw
     from core import branding
 
-    buf = io.BytesIO()
-    Image.new("RGB", (800, 400), "#ff0000").save(buf, format="JPEG")
-    uri = branding.process_upload(buf.getvalue())
-    assert uri.startswith("data:image/png;base64,")
-    with Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1]))) as out:
-        assert out.format == "PNG" and out.size == (256, 256)
+    wide = Image.new("RGB", (800, 200), "white")
+    ImageDraw.Draw(wide).rectangle([100, 50, 699, 149], fill="red")   # لوگو با حاشیه‌ی سفید زیاد
+    source = branding.prepare_logo(_png_bytes(wide, "JPEG"))
+    width, height = _decode_png(source).size
+    assert width == 512 and height < 100                     # حاشیه‌ی سفید حذف شد و نسبت ۶ به ۱ حفظ شد
+
+    avatar = _decode_png(branding.compose_logo_avatar(source, "white", 12))
+    assert avatar.size == (256, 256)
+    red = [x for x in range(256) if avatar.getpixel((x, 128))[:3] == (255, 0, 0) or
+           (avatar.getpixel((x, 128))[0] > 200 and avatar.getpixel((x, 128))[1] < 80)]
+    # کل عرض لوگو داخل آیکون است (برش نخورده) و حاشیه‌ی ۱۲٪ از دو طرف رعایت شده
+    assert 25 <= red[0] <= 36 and 220 <= red[-1] <= 231
+
+
+def test_small_logo_is_enlarged_and_background_options():
+    from PIL import Image, ImageDraw
+    from core import branding
+
+    small = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+    ImageDraw.Draw(small).ellipse([5, 5, 34, 34], fill=(0, 128, 255, 255))
+    source = branding.prepare_logo(_png_bytes(small))
+    for background, corner in (("white", (255, 255, 255, 255)), ("transparent", (0, 0, 0, 0))):
+        avatar = _decode_png(branding.compose_logo_avatar(source, background, 0))
+        assert avatar.getpixel((0, 0)) == corner
+        assert avatar.getpixel((128, 2))[2] > 200          # لوگو تا لبه بزرگ شده (حاشیه‌ی صفر)
+    brand = _decode_png(branding.compose_logo_avatar(source, "brand", 10, "#10b981"))
+    assert brand.getpixel((1, 1))[:3] == tuple(int(branding.palette("#10b981")["brand"][i:i + 2], 16) for i in (1, 3, 5))
+
+
+def test_logo_upload_rejects_unsafe_or_invalid_files():
+    from core import branding
 
     svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
     for bad in (svg, b"not an image", b"x" * (branding.MAX_UPLOAD_BYTES + 1)):
         with pytest.raises(branding.InvalidImage):
-            branding.process_upload(bad)
+            branding.prepare_logo(bad)
+    with pytest.raises(branding.InvalidImage):
+        branding.compose_logo_avatar("data:image/svg+xml;base64,AAAA")
 
 
 def test_org_branding_is_saved_and_reaches_public_assistant():
     org = make_org()
-    db.set_org_branding(org["org_id"], "#10b981", "initial", "")
+    db.set_org_branding(org["org_id"], "#10b981", "image", "data:image/png;base64,X", "data:image/png;base64,S",
+                        "brand", 20)
     saved = db.get_org(org["org_id"])
-    assert (saved["brand_color"], saved["avatar_mode"]) == ("#10b981", "initial")
+    assert (saved["brand_color"], saved["avatar_mode"], saved["avatar_bg"], saved["avatar_padding"]) ==         ("#10b981", "image", "brand", 20)
+    from core import branding
+    assert branding.from_org(saved)["source"] == "data:image/png;base64,S"
+    db.set_org_branding(org["org_id"], "#10b981", "initial", "")
 
     aid = db.create_assistant(org["org_id"], "x", "", "")
     db.set_public_link(org["org_id"], aid, "brand-token")
@@ -605,3 +648,10 @@ def test_avatar_initial_skips_generic_words():
     assert initial_of("دستیار اکام") == "ا"
     assert initial_of("شرکت فناوری نوین") == "ف"
     assert initial_of("دستیار") == "د" and initial_of("akam bot") == "A"
+
+
+def test_chat_css_has_no_angle_brackets():
+    # پاک‌سازی HTML در st.html تگ style دارای «<» را کامل حذف می‌کند (حتی داخل توضیح CSS)
+    from core import chat_style
+
+    assert "<" not in chat_style._CSS

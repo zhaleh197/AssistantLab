@@ -38,7 +38,8 @@ _CSS = """
   width: 88px; height: 88px; margin: 0 auto 1.1rem; border-radius: 28px;
   box-shadow: 0 16px 40px -12px var(--al-shadow); animation: al-float 6s ease-in-out infinite;
 }
-.al-hero-avatar img { width: 100%; height: 100%; display: block; }
+.al-hero-avatar img { width: 100%; height: 100%; display: block; border-radius: 28px;
+  box-shadow: 0 0 0 1px var(--al-card-border); }  /* لبه‌ی آیکون سفید روی زمینه‌ی سفید هم دیده شود */
 .al-greet { font-size: 1.85rem; font-weight: 700; color: var(--al-text); margin: 0 0 .35rem; line-height: 1.5; }
 .al-sub { color: var(--al-muted); font-size: 1rem; margin: 0 auto .9rem; max-width: 34rem; line-height: 1.9; }
 .al-status {
@@ -69,7 +70,8 @@ _CSS = """
   border-bottom: 1px solid var(--al-card-border);
 }
 .al-head { display: flex; align-items: center; gap: .75rem; }
-.al-head img { width: 42px; height: 42px; border-radius: 14px; box-shadow: 0 6px 18px -8px var(--al-shadow); }
+.al-head img { width: 42px; height: 42px; border-radius: 14px;
+  box-shadow: 0 0 0 1px var(--al-card-border), 0 6px 18px -8px var(--al-shadow); }
 .al-head-name { font-weight: 700; font-size: 1.05rem; color: var(--al-text); line-height: 1.4; }
 .al-head-status { font-size: .78rem; color: #059669; display: flex; align-items: center; gap: .35rem; }
 .al-head-status::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; background: #10b981; }
@@ -91,7 +93,10 @@ _CSS = """
   background: var(--al-card); border: 1px solid var(--al-card-border); box-shadow: var(--al-card-shadow);
   border-radius: 20px; border-start-start-radius: 6px; padding: .85rem 1.15rem;  /* گوشه‌ی تیز سمت آواتار */
 }
-[data-testid="stChatMessage"] [data-testid^="stChatMessageAvatar"] img { border-radius: 12px; }
+/* آواتار تصویری مستقیماً تگ img داخل پیام است (بدون data-testid) */
+[data-testid="stChatMessage"] > img {
+  border-radius: 12px; box-shadow: 0 0 0 1px var(--al-card-border);
+}
 [data-testid="stChatMessageContent"] p, [data-testid="stChatMessageContent"] li { line-height: 2; }
 
 /* نشانگر تایپ */

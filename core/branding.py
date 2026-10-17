@@ -132,8 +132,43 @@ def avatar_uri(color: str, mode: str = "sparkle", name: str = "", image: str = "
     return _svg_uri(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">{gradient}{body}</svg>')
 
 
-def process_upload(data: bytes) -> str:
-    """تصویر بارگذاری‌شده را مربعی، ۲۵۶ پیکسلی و PNG می‌کند و data URI برمی‌گرداند."""
+LOGO_BACKGROUNDS = ("white", "brand", "transparent")
+SOURCE_MAX_SIZE = 512          # نسخه‌ی اصلی لوگو برای تنظیم دوباره‌ی حاشیه و پس‌زمینه بدون بارگذاری مجدد
+DEFAULT_PADDING = 12           # درصد حاشیه‌ی خالی دور لوگو در هر طرف
+_PNG_PREFIX = "data:image/png;base64,"
+
+
+def _to_uri(img) -> str:
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return _PNG_PREFIX + base64.b64encode(out.getvalue()).decode()
+
+
+def _from_uri(uri: str):
+    from PIL import Image
+
+    if not uri.startswith(_PNG_PREFIX):
+        raise InvalidImage("لوگو پیدا نشد؛ دوباره بارگذاری کنید.")
+    return Image.open(io.BytesIO(base64.b64decode(uri[len(_PNG_PREFIX):]))).convert("RGBA")
+
+
+def _trim(img):
+    """فضای خالی دور لوگو را حذف می‌کند: با پس‌زمینه‌ی شفاف بر اساس شفافیت، وگرنه بر اساس رنگ گوشه‌ی تصویر."""
+    from PIL import Image, ImageChops
+
+    alpha = img.getchannel("A")
+    if alpha.getextrema()[0] < 250:
+        bbox = alpha.point(lambda a: 255 if a > 8 else 0).getbbox()
+    else:
+        rgb = img.convert("RGB")
+        background = Image.new("RGB", img.size, rgb.getpixel((0, 0)))
+        diff = ImageChops.difference(rgb, background).convert("L").point(lambda v: 255 if v > 18 else 0)
+        bbox = diff.getbbox()
+    return img.crop(bbox) if bbox else img
+
+
+def prepare_logo(data: bytes) -> str:
+    """لوگوی بارگذاری‌شده را بررسی، از نو رمزگذاری و از حاشیه‌ی خالی پاک می‌کند (نسخه‌ی اصلی، PNG)."""
     from PIL import Image, ImageOps, UnidentifiedImageError
 
     if len(data) > MAX_UPLOAD_BYTES:
@@ -142,13 +177,40 @@ def process_upload(data: bytes) -> str:
         with Image.open(io.BytesIO(data)) as img:
             if img.format not in ("PNG", "JPEG", "WEBP"):
                 raise InvalidImage("فقط تصویر PNG، JPG یا WEBP قابل قبول است.")
-            img = ImageOps.exif_transpose(img).convert("RGBA")
-            img = ImageOps.fit(img, (AVATAR_SIZE, AVATAR_SIZE), method=Image.Resampling.LANCZOS)
-            out = io.BytesIO()
-            img.save(out, format="PNG", optimize=True)
+            img = _trim(ImageOps.exif_transpose(img).convert("RGBA"))
+            img.thumbnail((SOURCE_MAX_SIZE, SOURCE_MAX_SIZE), Image.Resampling.LANCZOS)
+            return _to_uri(img)
     except (UnidentifiedImageError, OSError) as e:
         raise InvalidImage("این فایل تصویر معتبری نیست.") from e
-    return "data:image/png;base64," + base64.b64encode(out.getvalue()).decode()
+
+
+def compose_logo_avatar(source_uri: str, background: str = "white", padding: int = DEFAULT_PADDING,
+                        color: str = DEFAULT_COLOR) -> str:
+    """کل لوگو (بدون برش) با حفظ نسبت ابعاد، وسط یک مربع ۲۵۶ پیکسلی با حاشیه و پس‌زمینه‌ی انتخابی."""
+    from PIL import Image, ImageDraw, ImageOps
+
+    logo = _from_uri(source_uri)
+    padding = max(0, min(30, int(padding)))
+    inner = round(AVATAR_SIZE * (1 - 2 * padding / 100))
+    logo = ImageOps.contain(logo, (inner, inner), method=Image.Resampling.LANCZOS)
+
+    if background == "brand":
+        p = palette(color)
+        canvas = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE))
+        draw = ImageDraw.Draw(canvas)
+        start, end = _rgb(p["brand"]), _rgb(p["brand-2"])
+        for y in range(AVATAR_SIZE):  # گرادیان قطری ساده از رنگ برند
+            t = y / (AVATAR_SIZE - 1)
+            draw.line([(0, y), (AVATAR_SIZE, y)],
+                      fill=tuple(round((a + (b - a) * t) * 255) for a, b in zip(start, end)) + (255,))
+    elif background == "transparent":
+        canvas = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE), (0, 0, 0, 0))
+    else:
+        canvas = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE), (255, 255, 255, 255))
+
+    offset = ((AVATAR_SIZE - logo.width) // 2, (AVATAR_SIZE - logo.height) // 2)
+    canvas.alpha_composite(logo, offset)
+    return _to_uri(canvas)
 
 
 def from_org(org: dict | None) -> dict:
@@ -158,4 +220,7 @@ def from_org(org: dict | None) -> dict:
         "color": normalize_color(org.get("brand_color")),
         "mode": org.get("avatar_mode") if org.get("avatar_mode") in AVATAR_MODES else "sparkle",
         "image": org.get("avatar_image") or "",
+        "source": org.get("avatar_source") or "",
+        "background": org.get("avatar_bg") if org.get("avatar_bg") in LOGO_BACKGROUNDS else "white",
+        "padding": int(org.get("avatar_padding") if org.get("avatar_padding") is not None else DEFAULT_PADDING),
     }

@@ -12,6 +12,7 @@ org = db.get_org(org_id)
 saved = branding.from_org(org)
 
 MODE_LABELS = {"sparkle": "نشان درخشش", "initial": "حرف اول نام", "image": "لوگوی سازمان"}
+LOGO_BG_LABELS = {"white": "سفید", "brand": "رنگ برند", "transparent": "شفاف"}
 PRESETS = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#8b5cf6", "#0f172a"]
 
 st.title("ظاهر و برند", icon=":material/palette:")
@@ -37,20 +38,39 @@ with settings:
             "نوع آواتار", list(MODE_LABELS), format_func=MODE_LABELS.get,
             default=saved["mode"], key="avatar_mode_input", required=True,
         )
-        image = saved["image"]
+        source, image = saved["source"], saved["image"]
+        background, padding = saved["background"], saved["padding"]
         if mode == "image":
             upload = st.file_uploader("لوگو (PNG، JPG یا WEBP؛ حداکثر ۲ مگابایت)", type=["png", "jpg", "jpeg", "webp"])
             if upload is not None:
                 try:
-                    image = branding.process_upload(upload.getvalue())
+                    source = branding.prepare_logo(upload.getvalue())
                 except branding.InvalidImage as e:
                     st.error(str(e), icon=":material/broken_image:")
-            if not image:
+            if source:
+                st.caption("کل لوگو بدون برش و با حفظ نسبت ابعاد وسط آیکون قرار می‌گیرد؛ حاشیه‌ی خالی دورش خودکار حذف می‌شود.")
+                background = st.segmented_control(
+                    "پس‌زمینه‌ی آیکون", list(LOGO_BG_LABELS), format_func=LOGO_BG_LABELS.get,
+                    default=background, key="logo_bg_input", required=True,
+                )
+                padding = st.slider(
+                    "فاصله‌ی لوگو از لبه‌ی آیکون", 0, 30, value=padding, format="%d٪", key="logo_padding_input",
+                    help="عدد کمتر یعنی لوگو بزرگ‌تر و نزدیک‌تر به لبه‌ها.",
+                )
+                image = branding.compose_logo_avatar(source, background, padding, color)
+            elif image:  # لوگویی که با روش قدیمی (برش از وسط) ذخیره شده و نسخه‌ی اصلی‌اش موجود نیست
+                st.warning("برای اینکه کل لوگو دقیق داخل آیکون قرار بگیرد، آن را یک بار دیگر بارگذاری کنید.",
+                           icon=":material/upload:")
+            else:
                 st.caption("هنوز لوگویی بارگذاری نشده است؛ تا آن موقع نشان درخشش نمایش داده می‌شود.")
 
     if st.button("ذخیره‌ی تغییرات", type="primary", icon=":material/save:", width="stretch"):
-        db.set_org_branding(org_id, branding.normalize_color(color), mode, image if mode == "image" else saved["image"])
-        st.session_state.pop(BRAND_CACHE, None)  # صفحه‌ی گفتگو فوراً رنگ جدید را بگیرد
+        if mode == "image":
+            db.set_org_branding(org_id, branding.normalize_color(color), mode, image, source, background, padding)
+        else:  # لوگوی قبلی نگه داشته می‌شود تا با برگشت به حالت لوگو دوباره لازم نباشد بارگذاری شود
+            db.set_org_branding(org_id, branding.normalize_color(color), mode, saved["image"], saved["source"],
+                                saved["background"], saved["padding"])
+        st.session_state.pop(BRAND_CACHE, None)  # صفحه‌ی گفتگو فوراً تنظیمات جدید را بگیرد
         st.toast("ظاهر دستیارها به‌روز شد.", icon=":material/check_circle:")
 
 # ---------- پیش‌نمایش زنده ----------
@@ -66,7 +86,7 @@ with preview:
             background:radial-gradient(500px 200px at 50% -60px,{p['glow']},transparent 70%);">
   <div style="text-align:center">
     <img src="{avatar}" alt="" style="width:72px;height:72px;border-radius:24px;
-         box-shadow:0 14px 34px -12px {p['shadow']}">
+         box-shadow:0 0 0 1px #e8e9f3,0 14px 34px -12px {p['shadow']}">
     <div style="font-weight:700;font-size:1.25rem;margin:.7rem 0 .2rem">سلام! من {html.escape(sample)} هستم</div>
     <span style="font-size:.78rem;color:#059669;background:rgba(16,185,129,.1);padding:.15rem .7rem;
                  border-radius:999px">آنلاین و آماده‌ی پاسخ‌گویی</span>
@@ -77,7 +97,7 @@ with preview:
                 box-shadow:0 10px 24px -14px {p['shadow']}">ساعت کاری شما چیست؟</div>
   </div>
   <div style="display:flex;gap:.6rem;align-items:flex-start;margin-top:.8rem">
-    <img src="{avatar}" alt="" style="width:32px;height:32px;border-radius:10px">
+    <img src="{avatar}" alt="" style="width:32px;height:32px;border-radius:10px;box-shadow:0 0 0 1px #e8e9f3">
     <div style="border:1px solid #e8e9f3;border-radius:20px;border-start-start-radius:6px;padding:.7rem 1rem;
                 background:#fff;flex:1">
       ساعت کاری از شنبه تا چهارشنبه، ۸ تا ۱۶ است [1].

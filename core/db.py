@@ -189,6 +189,10 @@ COLUMN_MIGRATIONS = [
     ("organizations", "brand_color", "TEXT NOT NULL DEFAULT '#6366f1'"),
     ("organizations", "avatar_mode", "TEXT NOT NULL DEFAULT 'sparkle'"),
     ("organizations", "avatar_image", "TEXT NOT NULL DEFAULT ''"),
+    # نسخه‌ی اصلی لوگو و تنظیمات قرار گرفتنش در آیکون (برای تغییر بدون بارگذاری دوباره)
+    ("organizations", "avatar_source", "TEXT NOT NULL DEFAULT ''"),
+    ("organizations", "avatar_bg", "TEXT NOT NULL DEFAULT 'white'"),
+    ("organizations", "avatar_padding", "INTEGER NOT NULL DEFAULT 12"),
 ]
 INDEX_MIGRATIONS = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_organizations_slug ON organizations(slug) WHERE slug IS NOT NULL",
@@ -403,7 +407,7 @@ def get_org_by_slug(slug: str) -> dict | None:
     return dict(row) if row else None
 
 
-_ORG_COLUMNS = "id, name, slug, brand_color, avatar_mode, avatar_image"
+_ORG_COLUMNS = "id, name, slug, brand_color, avatar_mode, avatar_image, avatar_source, avatar_bg, avatar_padding"
 
 
 def get_org(org_id: int) -> dict | None:
@@ -412,11 +416,14 @@ def get_org(org_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def set_org_branding(org_id: int, brand_color: str, avatar_mode: str, avatar_image: str) -> None:
+def set_org_branding(org_id: int, brand_color: str, avatar_mode: str, avatar_image: str,
+                     avatar_source: str = "", avatar_bg: str = "white", avatar_padding: int = 12) -> None:
     with connect() as c:
         c.execute(
-            "UPDATE organizations SET brand_color = ?, avatar_mode = ?, avatar_image = ? WHERE id = ?",
-            (brand_color, avatar_mode, avatar_image, org_id),
+            """UPDATE organizations SET brand_color = ?, avatar_mode = ?, avatar_image = ?,
+                      avatar_source = ?, avatar_bg = ?, avatar_padding = ?
+               WHERE id = ?""",
+            (brand_color, avatar_mode, avatar_image, avatar_source, avatar_bg, avatar_padding, org_id),
         )
 
 
