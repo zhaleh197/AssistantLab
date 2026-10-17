@@ -11,12 +11,22 @@ import config
 # Streamlit راست‌به‌چپ ندارد؛ فونت و رنگ‌ها از تم (.streamlit/config.toml) می‌آیند و اینجا فقط جهت متن است.
 RTL_CSS = """
 <style>
-/* راست‌به‌چپ فقط روی محتوا اعمال می‌شود، نه ظرفی که جای نوار کناری را تعیین می‌کند (stAppViewContainer):
-   راست‌به‌چپ کردن آن ظرف جای نوار کناری را برعکس می‌کرد و باز و بسته شدنش (که Streamlit با جابه‌جایی
-   ۳۰۰px به چپ انجام می‌دهد) نوار را روی صفحه می‌انداخت. نوار کناری سر جای خودش (چپ) می‌ماند. */
-[data-testid="stAppScrollToBottomContainer"], [data-testid="stSidebarContent"], [data-testid="stBottom"] {
+/* راست‌به‌چپ روی محتوا (نه ظرف اصلی؛ direction روی ظرف اصلی باز و بسته شدن نوار کناری را خراب می‌کرد) */
+[data-testid="stAppScrollToBottomContainer"], [data-testid="stSidebarContent"], [data-testid="stBottom"],
+[data-testid="stHeader"] {
   direction: rtl;
 }
+/* نوار کناری سمت راست: فقط ترتیب ستون‌ها برعکس می‌شود. نوار بسته عرض صفر دارد ولی محتوایش بیرون
+   می‌زد و روی صفحه می‌افتاد، پس هنگام بسته بودن کاملاً حذف می‌شود. این قواعد به ساختار Streamlit 1.65
+   وابسته‌اند (نسخه در requirements.txt ثابت است) */
+[data-testid="stAppViewContainer"] { flex-direction: row-reverse; }
+[data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarContent"] { display: none; }
+/* فلش‌های باز و بسته کردن برای نوار سمت راست قرینه می‌شوند */
+[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"],
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] { display: inline-block; transform: scaleX(-1); }
+/* دستگیره‌ی تغییر عرض برای نوار سمت راست جهت عکس دارد و گیج‌کننده است */
+/* خود دستگیره و ظرف ۸ پیکسلی‌اش که در تمام ارتفاع صفحه کلیک‌ها را می‌گرفت */
+div:has(> [data-testid="stSidebarResizeHandle"]), [data-testid="stSidebarResizeHandle"] { display: none; }
 input, textarea { direction: rtl; }
 
 /* تراز پیش‌فرض Streamlit «چپ» است که برای فارسی غلط است؛ start یعنی راست برای فارسی و چپ برای انگلیسی */
