@@ -16,6 +16,7 @@ def status(request):
     """عیب‌یابی انتشار: فقط بله/خیر، بدون هیچ مقدار محرمانه."""
     return JSONResponse({
         "storage": "postgres" if db.is_postgres() else "sqlite (temporary)",
+        "streamlit_version": st.__version__,
         "chat_providers_with_key": sorted(p for p, k in config.PROVIDER_KEYS.items() if k),
         "embedding_key_set": bool(config.EMBED_API_KEY),
     })

@@ -11,13 +11,14 @@ import config
 # Streamlit راست‌به‌چپ ندارد؛ فونت و رنگ‌ها از تم (.streamlit/config.toml) می‌آیند و اینجا فقط جهت متن است.
 RTL_CSS = """
 <style>
-[data-testid="stAppViewContainer"], [data-testid="stSidebar"], [data-testid="stBottom"] { direction: rtl; }
+/* راست‌به‌چپ فقط روی محتوا اعمال می‌شود، نه ظرفی که جای نوار کناری را تعیین می‌کند (stAppViewContainer):
+   راست‌به‌چپ کردن آن ظرف جای نوار کناری را برعکس می‌کرد و باز و بسته شدنش (که Streamlit با جابه‌جایی
+   ۳۰۰px به چپ انجام می‌دهد) نوار را روی صفحه می‌انداخت. نوار کناری سر جای خودش (چپ) می‌ماند. */
+[data-testid="stAppScrollToBottomContainer"], [data-testid="stSidebarContent"], [data-testid="stBottom"] {
+  direction: rtl;
+}
 input, textarea { direction: rtl; }
-/* نوار کناری بسته: Streamlit آن را ۳۰۰px به چپ می‌برد به این فرض که در لبه‌ی چپ است؛ در چیدمان
-   راست‌به‌چپ نوار کناری سمت راست است و آن جابه‌جایی آن را داخل صفحه می‌انداخت (به‌خصوص در گوشی) */
-/* display (نه visibility) چون بعضی اجزای داخلی visibility خودشان را صریحاً visible می‌کنند؛
-   دکمه‌ی باز کردن دوباره‌ی نوار کناری بیرون از این بخش (در سرصفحه) است */
-[data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarContent"] { display: none; }
+
 /* تراز پیش‌فرض Streamlit «چپ» است که برای فارسی غلط است؛ start یعنی راست برای فارسی و چپ برای انگلیسی */
 [data-testid="stMarkdownContainer"] :is(p, li, h1, h2, h3, h4, h5, h6),
 [data-testid="stCaptionContainer"] p, [data-testid="stHeading"] :is(h1, h2, h3, h4, h5, h6) {
