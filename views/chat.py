@@ -1,9 +1,10 @@
 import streamlit as st
 
-from core import chat_ui, db, perf
+from core import chat_style, chat_ui, db, perf
 from core.ui import current_user, pick_assistant
 
 st.set_page_config(layout="centered")  # گفتگو در ستون باریک‌تر خواناتر است
+chat_style.apply()
 
 user = current_user()
 org_id = user["org_id"]
@@ -31,11 +32,11 @@ with st.sidebar:
         st.rerun()
 
 # کادر پیام همیشه پایین صفحه است؛ زودتر خوانده می‌شود تا با اولین سؤال صفحه‌ی خوش‌آمد کنار برود
-typed = st.chat_input("سؤال خود را بپرسید...", submit_mode="disable")
+typed = st.chat_input("پیامتان را بنویسید...", submit_mode="disable")
 question = typed or chat_ui.take_starter(pills_key)
 
 if history or question:
-    st.subheader(assistant["name"], icon=":material/smart_toy:")
+    chat_ui.header(assistant)
 else:
     chat_ui.welcome(assistant, pills_key)
     if assistant["n_chunks"] == 0:

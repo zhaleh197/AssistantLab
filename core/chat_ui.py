@@ -8,9 +8,9 @@ import streamlit as st
 from openai import APIError, NotFoundError
 
 import config
-from core import llm, perf, rag, retrieval
+from core import chat_style, llm, perf, rag, retrieval
 
-AVATARS = {"user": ":material/person:", "assistant": ":material/smart_toy:"}
+AVATARS = {"user": ":material/person:", "assistant": chat_style.ASSISTANT_AVATAR}
 _MD_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+\-.!|>~<])")
 
 
@@ -27,33 +27,36 @@ def starter_questions(assistant: dict) -> list[str]:
 # ---------- صفحه‌ی خوش‌آمد ----------
 
 def welcome(assistant: dict, pills_key: str) -> None:
-    """پیش از اولین پیام: معرفی دستیار و سؤال‌های پیشنهادی."""
-    with st.container(horizontal_alignment="center", key="center_welcome"):
-        st.space("medium")
-        st.title(assistant["name"], icon=":material/smart_toy:", text_alignment="center")
-        if assistant.get("description"):
-            st.caption(md_escape(assistant["description"]), text_alignment="center")
-        st.markdown(
-            f"سلام! من {md_escape(assistant['name'])} هستم. سؤالتان را بپرسید تا از روی منابع پاسخ بدهم.",
-            text_alignment="center",
-        )
-        questions = starter_questions(assistant)
-        if questions:
-            st.space("small")
-            st.pills(
-                "سؤال‌های پیشنهادی", questions, key=pills_key,
-                on_change=_pick_starter, args=(pills_key,), label_visibility="collapsed",
+    """پیش از اولین پیام: معرفی گرم دستیار و کارت‌های سؤال پیشنهادی."""
+    st.html(chat_style.hero_html(assistant["name"], assistant.get("description") or ""))
+    questions = starter_questions(assistant)
+    if not questions:
+        return
+    st.html('<p class="al-suggest-title">می‌توانید از این‌جا شروع کنید</p>')
+    with st.container(key="al_suggest"):
+        columns = st.columns(2)
+        for i, q in enumerate(questions):
+            columns[i % 2].button(
+                q, key=f"{pills_key}_{i}", icon=":material/chat_bubble:", width="stretch",
+                on_click=_pick_starter, args=(pills_key, q),
             )
 
 
-def _pick_starter(pills_key: str) -> None:
-    st.session_state[f"{pills_key}_pending"] = st.session_state[pills_key]
-    st.session_state[pills_key] = None  # تا با شروع گفتگوی جدید دوباره خودکار ارسال نشود
+def _pick_starter(pills_key: str, question: str) -> None:
+    st.session_state[f"{pills_key}_pending"] = question
 
 
 def take_starter(pills_key: str) -> str | None:
     """سؤال پیشنهادی‌ای که کاربر رویش کلیک کرده (یک بار)."""
     return st.session_state.pop(f"{pills_key}_pending", None)
+
+
+def header(assistant: dict, on_new_chat=None) -> None:
+    """سرصفحه‌ی چسبان در طول گفتگو: آواتار، نام، وضعیت و دکمه‌ی گفتگوی جدید."""
+    with st.container(key="al_header", horizontal=True, vertical_alignment="center"):
+        st.html(chat_style.header_html(assistant["name"]), width="stretch")
+        if on_new_chat and st.button("گفتگوی جدید", icon=":material/add_comment:", type="tertiary"):
+            on_new_chat()
 
 
 # ---------- پیام‌ها و منابع ----------
@@ -62,13 +65,11 @@ def render_sources(sources: list[dict], show_excerpts: bool) -> None:
     """کارکنان: متن هر منبع. لینک عمومی: فقط نام اسناد (بدون تکرار) و بدون متن داخلی آن‌ها."""
     if not sources:
         return
+    names = list(dict.fromkeys(s.get("source_name") or s["label"] for s in sources))
+    st.html(chat_style.sources_html(names))
     if not show_excerpts:
-        names = list(dict.fromkeys(s.get("source_name") or s["label"] for s in sources))
-        # نام‌های انگلیسی در متن فارسی جابه‌جا نمایش داده می‌شوند؛ هر نام جداگانه ایزوله می‌شود (FSI…PDI).
-        # نشانه‌ی RLM در ابتدا لازم است چون آیکون (که از متن انگلیسی ساخته می‌شود) جهت سطر را چپ‌به‌راست می‌کرد.
-        st.caption("\u200f:material/menu_book: منبع: " + "، ".join(f"⁨{md_escape(n)}⁩" for n in names))
         return
-    with st.expander(f"منابع ({len(sources)})", icon=":material/menu_book:"):
+    with st.expander(f"متن منابع ({len(sources)})", icon=":material/menu_book:"):
         for s in sources:
             st.markdown(f"**[{s['n']}] {html.escape(s['label'])}**")
             st.markdown(f"<div class='source-box'>{html.escape(s['content'])}</div>", unsafe_allow_html=True)
@@ -100,7 +101,7 @@ def answer(assistant: dict, history: list[dict], question: str, show_excerpts: b
             messages = rag.build_messages(assistant, history, question, hits)
             started = time.perf_counter()
             waiting = st.empty()
-            waiting.caption(":shimmer[در حال نوشتن پاسخ...]")
+            waiting.html(chat_style.TYPING_HTML)
 
             def timed_stream():
                 first = True
