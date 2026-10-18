@@ -12,8 +12,9 @@ import config
 RTL_CSS = """
 <style>
 /* راست‌به‌چپ روی محتوا (نه ظرف اصلی؛ direction روی ظرف اصلی باز و بسته شدن نوار کناری را خراب می‌کرد) */
-[data-testid="stAppScrollToBottomContainer"], [data-testid="stSidebarContent"], [data-testid="stBottom"],
-[data-testid="stHeader"] {
+/* بخش اصلی صفحه در صفحه‌های گفتگو stAppScrollToBottomContainer و در بقیه (ورود، مدیریت) stMain است */
+[data-testid="stMain"], [data-testid="stAppScrollToBottomContainer"], section.stMain,
+[data-testid="stSidebarContent"], [data-testid="stBottom"], [data-testid="stHeader"] {
   direction: rtl;
 }
 /* نوار کناری سمت راست: فقط ترتیب ستون‌ها برعکس می‌شود. نوار بسته عرض صفر دارد ولی محتوایش بیرون
